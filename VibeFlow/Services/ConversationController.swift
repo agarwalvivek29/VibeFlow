@@ -27,53 +27,64 @@ final class ConversationController: ObservableObject {
         self.settings = settings
         // Don't request permissions during init - it blocks UI
         // Permissions are now handled by PermissionsHelper in ContentView
+        // Key binding changes take effect immediately (read dynamically in event handlers)
     }
 
     func installGlobalMonitors() {
         #if os(macOS)
         removeGlobalMonitors()
-        print("🎯 Installing event monitors...")
+
+        // Key binding is read dynamically in each handler so changes take effect immediately
 
         let handleKeyDown: (NSEvent) -> Void = { [weak self] event in
             guard let self = self else { return }
+            let activeKey = self.settings.activeRecordingKey
 
-            // Right Command key (keyCode 54) as fallback for testing
-            let isRightCommand = event.keyCode == 54
+            // Check if this key matches our recording key (for non-modifier-only bindings)
+            if !activeKey.isModifierOnly && self.matchesRecordingKey(event: event, binding: activeKey) && !self.isRecording {
+                self.startRecording()
+            }
 
-            if isRightCommand && !self.isRecording {
-                print("🎤 Right Command key DOWN - starting recording")
+            // Also support modifier-only keys pressed as regular keys (like Right Command keyCode 54)
+            if activeKey.isModifierOnly && activeKey.keyCode != 0 && event.keyCode == activeKey.keyCode && !self.isRecording {
                 self.startRecording()
             }
         }
 
         let handleKeyUp: (NSEvent) -> Void = { [weak self] event in
             guard let self = self else { return }
+            let activeKey = self.settings.activeRecordingKey
 
-            let isRightCommand = event.keyCode == 54
+            // For key combos, we only check keyCode on release (user might release modifier first)
+            if !activeKey.isModifierOnly && event.keyCode == activeKey.keyCode && self.isRecording {
+                Task { await self.stopAndProcess() }
+            }
 
-            if isRightCommand && self.isRecording {
-                print("🛑 Right Command key UP - stopping recording")
+            // Also support modifier-only keys released as regular keys (like Right Command keyCode 54)
+            if activeKey.isModifierOnly && activeKey.keyCode != 0 && event.keyCode == activeKey.keyCode && self.isRecording {
                 Task { await self.stopAndProcess() }
             }
         }
 
         let handleFlagsChanged: (NSEvent) -> Void = { [weak self] event in
             guard let self = self else { return }
+            let activeKey = self.settings.activeRecordingKey
 
             let currentFlags = event.modifierFlags
             let previousFlags = self.previousModifierFlags
 
-            // Check if Fn key state changed (NSEvent.ModifierFlags.function = 0x800000)
-            let fnWasPressed = previousFlags.contains(.function)
-            let fnIsPressed = currentFlags.contains(.function)
+            // Only handle modifier-only bindings here
+            guard activeKey.isModifierOnly else {
+                self.previousModifierFlags = currentFlags
+                return
+            }
 
-            if fnIsPressed && !fnWasPressed && !self.isRecording {
-                // Fn key just pressed
-                print("🎤 Fn key PRESSED! Starting recording...")
+            let wasPressed = self.isModifierPressed(in: previousFlags, for: activeKey)
+            let isPressed = self.isModifierPressed(in: currentFlags, for: activeKey)
+
+            if isPressed && !wasPressed && !self.isRecording {
                 self.startRecording()
-            } else if !fnIsPressed && fnWasPressed && self.isRecording {
-                // Fn key just released
-                print("🛑 Fn key RELEASED! Stopping recording...")
+            } else if !isPressed && wasPressed && self.isRecording {
                 Task { await self.stopAndProcess() }
             }
 
@@ -89,7 +100,6 @@ final class ConversationController: ObservableObject {
             }
         }
         globalKeyUpMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyUp, handler: handleKeyUp)
-        print("✅ Global monitors installed (captures events from other apps)")
 
         // Local monitors - capture events from THIS app
         localKeyDownMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { event in
@@ -104,10 +114,56 @@ final class ConversationController: ObservableObject {
             handleKeyUp(event)
             return event
         }
-        print("✅ Local monitors installed (captures events from VibeFlow window)")
-        print("🎯 All monitors ready!")
-        print("🎯 Press and HOLD Fn key to record, release to stop")
-        print("🎯 Or use RIGHT Command (⌘) for testing")
+        #endif
+    }
+
+    private func matchesRecordingKey(event: NSEvent, binding: KeyBinding) -> Bool {
+        #if os(macOS)
+        // Check keyCode matches
+        guard event.keyCode == binding.keyCode else { return false }
+
+        // Check modifiers match (mask out irrelevant flags)
+        let relevantFlags: NSEvent.ModifierFlags = [.control, .option, .shift, .command, .function]
+        let eventModifiers = event.modifierFlags.intersection(relevantFlags)
+        let bindingModifiers = NSEvent.ModifierFlags(rawValue: binding.modifiers).intersection(relevantFlags)
+
+        return eventModifiers == bindingModifiers
+        #else
+        return false
+        #endif
+    }
+
+    private func isModifierPressed(in flags: NSEvent.ModifierFlags, for binding: KeyBinding) -> Bool {
+        #if os(macOS)
+        let bindingModifiers = NSEvent.ModifierFlags(rawValue: binding.modifiers)
+
+        // Handle Fn key
+        if bindingModifiers.contains(.function) {
+            return flags.contains(.function)
+        }
+
+        // Handle Command key (need to check keyCode for left vs right)
+        if bindingModifiers.contains(.command) {
+            // For Right Command (keyCode 54), we check both the modifier flag and that it's not left command
+            // For Left Command (keyCode 55), same logic
+            // Since flagsChanged doesn't give us keyCode reliably for modifiers,
+            // we just check the modifier flag
+            return flags.contains(.command)
+        }
+
+        // Handle Control key
+        if bindingModifiers.contains(.control) {
+            return flags.contains(.control)
+        }
+
+        // Handle Option key
+        if bindingModifiers.contains(.option) {
+            return flags.contains(.option)
+        }
+
+        return false
+        #else
+        return false
         #endif
     }
 
@@ -134,7 +190,6 @@ final class ConversationController: ObservableObject {
             #if os(macOS)
             HUDWindowController.shared.show(controller: self, settings: settings, atBottom: true)
             #endif
-            print("🎙️ Recording started")
         } catch {
             print("❌ Error starting recording: \(error)")
             isRecording = false
@@ -169,88 +224,112 @@ final class ConversationController: ObservableObject {
         ]
     }
 
-    private func pasteToFrontmostApp(_ text: String) {
+    private func copyToClipboard(_ text: String) {
         #if os(macOS)
-        print("📋 Copying to clipboard: '\(text)'")
         let pb = NSPasteboard.general
         pb.clearContents()
-        let success = pb.setString(text, forType: .string)
-        print("📋 Clipboard set success: \(success)")
-
-        // Verify clipboard contents
-        if let clipboardText = pb.string(forType: .string) {
-            print("📋 Clipboard now contains: '\(clipboardText)'")
-        } else {
-            print("📋 WARNING: Clipboard is empty after setting!")
-        }
-
-        // Simulate Command+V
-        let src = CGEventSource(stateID: .hidSystemState)
-        let cmdDown = CGEvent(keyboardEventSource: src, virtualKey: 0x37, keyDown: true) // Command
-        cmdDown?.flags = .maskCommand
-        let vDown = CGEvent(keyboardEventSource: src, virtualKey: 0x09, keyDown: true) // V
-        vDown?.flags = .maskCommand
-        let vUp = CGEvent(keyboardEventSource: src, virtualKey: 0x09, keyDown: false)
-        vUp?.flags = .maskCommand
-        let cmdUp = CGEvent(keyboardEventSource: src, virtualKey: 0x37, keyDown: false)
-        cmdUp?.flags = []
-        cmdDown?.post(tap: .cghidEventTap)
-        vDown?.post(tap: .cghidEventTap)
-        vUp?.post(tap: .cghidEventTap)
-        cmdUp?.post(tap: .cghidEventTap)
+        pb.setString(text, forType: .string)
         #endif
     }
 
+    private func performPostTranscriptionAction(_ text: String) {
+        #if os(macOS)
+        // Always copy to clipboard first
+        copyToClipboard(text)
+
+        // Get the configured post-transcription key binding
+        guard let keyBinding = settings.postTranscriptionKeyBinding else {
+            return // Clipboard only mode
+        }
+
+        // Simulate the key press
+        simulateKeyPress(keyBinding)
+        #endif
+    }
+
+    private func simulateKeyPress(_ binding: KeyBinding) {
+        #if os(macOS)
+        let src = CGEventSource(stateID: .hidSystemState)
+        let flags = NSEvent.ModifierFlags(rawValue: binding.modifiers)
+
+        // Build CGEventFlags from the binding
+        var cgFlags: CGEventFlags = []
+        if flags.contains(.command) {
+            cgFlags.insert(.maskCommand)
+        }
+        if flags.contains(.shift) {
+            cgFlags.insert(.maskShift)
+        }
+        if flags.contains(.option) {
+            cgFlags.insert(.maskAlternate)
+        }
+        if flags.contains(.control) {
+            cgFlags.insert(.maskControl)
+        }
+
+        // For modifier-only bindings, skip key simulation
+        if binding.isModifierOnly { return }
+
+        // Simulate modifier down (if any)
+        if flags.contains(.command) {
+            let cmdDown = CGEvent(keyboardEventSource: src, virtualKey: 0x37, keyDown: true)
+            cmdDown?.flags = cgFlags
+            cmdDown?.post(tap: .cghidEventTap)
+        }
+
+        // Simulate key down/up
+        let keyDown = CGEvent(keyboardEventSource: src, virtualKey: binding.keyCode, keyDown: true)
+        keyDown?.flags = cgFlags
+        keyDown?.post(tap: .cghidEventTap)
+
+        let keyUp = CGEvent(keyboardEventSource: src, virtualKey: binding.keyCode, keyDown: false)
+        keyUp?.flags = cgFlags
+        keyUp?.post(tap: .cghidEventTap)
+
+        // Simulate modifier up (if any)
+        if flags.contains(.command) {
+            let cmdUp = CGEvent(keyboardEventSource: src, virtualKey: 0x37, keyDown: false)
+            cmdUp?.flags = []
+            cmdUp?.post(tap: .cghidEventTap)
+        }
+        #endif
+    }
+
+    // Legacy method for backward compatibility
+    private func pasteToFrontmostApp(_ text: String) {
+        performPostTranscriptionAction(text)
+    }
+
     func stopAndProcess() async {
-        // Wait for final transcription (ensures all words are captured)
         let transcript = await speech.stopAndWaitForFinal()
-        print("📝 Final transcript from speech: '\(transcript)'")
 
         isRecording = false
         #if os(macOS)
         HUDWindowController.shared.updatePosition()
         #endif
 
-        guard !transcript.isEmpty else {
-            print("⚠️ Transcript is empty, nothing to process")
-            return
-        }
+        guard !transcript.isEmpty else { return }
 
         var processedText = ""
         var usedLLM = false
 
-        // Check if LLM processing is enabled
         if settings.useLLMProcessing {
-            print("[LLM] Processing enabled, sending to LLM...")
-            print("💬 Model: \(settings.llmModel)")
-            print("💬 System prompt: \(settings.buildSystemPrompt())")
-
             do {
                 let stream = try await llm.streamChatCompletion(model: settings.llmModel, messages: messages(from: transcript))
-                print("💬 Streaming response from LLM...")
                 for try await token in stream {
                     processedText.append(token)
                 }
-                print("✅ LLM response complete: '\(processedText)'")
-                print("📋 Pasting to frontmost app...")
                 pasteToFrontmostApp(processedText)
                 usedLLM = true
-                print("✅ Paste complete!")
             } catch {
-                print("❌ LLM error: \(error)")
-                print("📋 Fallback: Pasting raw transcript instead...")
                 pasteToFrontmostApp(transcript)
                 processedText = transcript
-                print("✅ Fallback paste complete!")
             }
         } else {
-            print("[Direct] LLM disabled, pasting raw transcript")
             pasteToFrontmostApp(transcript)
             processedText = transcript
-            print("✅ Direct paste complete!")
         }
 
-        // Save to history database
         saveToHistory(
             rawTranscript: transcript,
             processedText: processedText,
@@ -259,10 +338,7 @@ final class ConversationController: ObservableObject {
     }
 
     private func saveToHistory(rawTranscript: String, processedText: String, usedLLM: Bool) {
-        guard let modelContainer = modelContainer else {
-            print("❌ ModelContainer not set, cannot save to history")
-            return
-        }
+        guard let modelContainer = modelContainer else { return }
 
         let wordCount = processedText.split(separator: " ").count
         let entry = TranscriptionEntry(
@@ -278,22 +354,15 @@ final class ConversationController: ObservableObject {
 
         let context = ModelContext(modelContainer)
         context.insert(entry)
-        do {
-            try context.save()
-            print("💾 Saved transcription entry")
-        } catch {
-            print("❌ Failed to save to history: \(error)")
-        }
+        try? context.save()
     }
 
     // TEST METHODS - For debugging
     func testStartRecording() {
-        print("🧪 TEST: testStartRecording() called")
         startRecording()
     }
 
     func testStopRecording() async {
-        print("🧪 TEST: testStopRecording() called")
         await stopAndProcess()
     }
 }

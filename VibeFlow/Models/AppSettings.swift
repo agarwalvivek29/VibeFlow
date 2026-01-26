@@ -43,6 +43,47 @@ final class AppSettings: ObservableObject {
         didSet { save() }
     }
 
+    // Key Binding Settings
+    @Published var recordingKeyPreset: RecordingKeyPreset {
+        didSet { save() }
+    }
+
+    @Published var customRecordingKey: KeyBinding? {
+        didSet { save() }
+    }
+
+    @Published var postTranscriptionAction: PostTranscriptionAction {
+        didSet { save() }
+    }
+
+    @Published var customPostTranscriptionKey: KeyBinding? {
+        didSet { save() }
+    }
+
+    // Computed property for active recording key
+    var activeRecordingKey: KeyBinding {
+        switch recordingKeyPreset {
+        case .fn:
+            return .fnKey
+        case .rightCommand:
+            return .rightCommand
+        case .custom:
+            return customRecordingKey ?? .fnKey
+        }
+    }
+
+    // Computed property for post-transcription key binding
+    var postTranscriptionKeyBinding: KeyBinding? {
+        switch postTranscriptionAction {
+        case .autoPaste:
+            return .cmdV
+        case .clipboardOnly:
+            return nil
+        case .customKeyCombo:
+            return customPostTranscriptionKey
+        }
+    }
+
     enum WritingStyle: String, CaseIterable, Codable {
         case casual = "Casual"
         case professional = "Professional"
@@ -74,6 +115,10 @@ final class AppSettings: ObservableObject {
     private static let removeFillerKey = "removeFiller"
     private static let autoFormatKey = "autoFormat"
     private static let useLLMProcessingKey = "useLLMProcessing"
+    private static let recordingKeyPresetKey = "recordingKeyPreset"
+    private static let customRecordingKeyKey = "customRecordingKey"
+    private static let postTranscriptionActionKey = "postTranscriptionAction"
+    private static let customPostTranscriptionKeyKey = "customPostTranscriptionKey"
 
     init() {
         self.liteLLMBaseURL = Self.defaults.string(forKey: Self.baseURLKey) ?? "http://127.0.0.1:4000"
@@ -97,6 +142,35 @@ final class AppSettings: ObservableObject {
         self.removeFiller = Self.defaults.bool(forKey: Self.removeFillerKey) || !Self.defaults.dictionaryRepresentation().keys.contains(Self.removeFillerKey)
         self.autoFormat = Self.defaults.bool(forKey: Self.autoFormatKey) || !Self.defaults.dictionaryRepresentation().keys.contains(Self.autoFormatKey)
         self.useLLMProcessing = Self.defaults.object(forKey: Self.useLLMProcessingKey) as? Bool ?? true
+
+        // Load key binding settings
+        if let presetRaw = Self.defaults.string(forKey: Self.recordingKeyPresetKey),
+           let preset = RecordingKeyPreset(rawValue: presetRaw) {
+            self.recordingKeyPreset = preset
+        } else {
+            self.recordingKeyPreset = .fn
+        }
+
+        if let data = Self.defaults.data(forKey: Self.customRecordingKeyKey),
+           let binding = try? JSONDecoder().decode(KeyBinding.self, from: data) {
+            self.customRecordingKey = binding
+        } else {
+            self.customRecordingKey = nil
+        }
+
+        if let actionRaw = Self.defaults.string(forKey: Self.postTranscriptionActionKey),
+           let action = PostTranscriptionAction(rawValue: actionRaw) {
+            self.postTranscriptionAction = action
+        } else {
+            self.postTranscriptionAction = .autoPaste
+        }
+
+        if let data = Self.defaults.data(forKey: Self.customPostTranscriptionKeyKey),
+           let binding = try? JSONDecoder().decode(KeyBinding.self, from: data) {
+            self.customPostTranscriptionKey = binding
+        } else {
+            self.customPostTranscriptionKey = nil
+        }
     }
 
     private func save() {
@@ -108,6 +182,24 @@ final class AppSettings: ObservableObject {
         Self.defaults.set(removeFiller, forKey: Self.removeFillerKey)
         Self.defaults.set(autoFormat, forKey: Self.autoFormatKey)
         Self.defaults.set(useLLMProcessing, forKey: Self.useLLMProcessingKey)
+
+        // Save key binding settings
+        Self.defaults.set(recordingKeyPreset.rawValue, forKey: Self.recordingKeyPresetKey)
+        Self.defaults.set(postTranscriptionAction.rawValue, forKey: Self.postTranscriptionActionKey)
+
+        if let customRecordingKey = customRecordingKey,
+           let data = try? JSONEncoder().encode(customRecordingKey) {
+            Self.defaults.set(data, forKey: Self.customRecordingKeyKey)
+        } else {
+            Self.defaults.removeObject(forKey: Self.customRecordingKeyKey)
+        }
+
+        if let customPostTranscriptionKey = customPostTranscriptionKey,
+           let data = try? JSONEncoder().encode(customPostTranscriptionKey) {
+            Self.defaults.set(data, forKey: Self.customPostTranscriptionKeyKey)
+        } else {
+            Self.defaults.removeObject(forKey: Self.customPostTranscriptionKeyKey)
+        }
     }
 
     func buildSystemPrompt() -> String {
