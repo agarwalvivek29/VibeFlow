@@ -2,197 +2,409 @@
 //  SettingsView.swift
 //  VibeFlow
 //
-//  Settings UI for configuring VibeFlow
+//  Minimal settings
 //
 
 import SwiftUI
+#if os(macOS)
+import Carbon.HIToolbox
+#endif
 
 struct SettingsView: View {
     @ObservedObject var settings: AppSettings
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 32) {
+                // Recording Hotkey
+                SettingsSection(title: "Recording Hotkey") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(RecordingKeyPreset.allCases, id: \.self) { preset in
+                            RadioRow(
+                                title: preset.rawValue,
+                                subtitle: preset.description,
+                                isSelected: settings.recordingKeyPreset == preset
+                            ) {
+                                settings.recordingKeyPreset = preset
+                            }
+                        }
 
-    private var recordingKeyDisplayName: String {
-        settings.activeRecordingKey.displayString
-    }
+                        // Custom key capture field
+                        if settings.recordingKeyPreset == .custom {
+                            KeyCaptureField(
+                                label: "Press a key combination",
+                                binding: settings.customRecordingKey
+                            ) { newBinding in
+                                settings.customRecordingKey = newBinding
+                            }
+                            .padding(.top, 4)
+                        }
+                    }
+                }
 
-    private var postActionDescription: String {
-        switch settings.postTranscriptionAction {
-        case .autoPaste:
-            return " and paste"
-        case .clipboardOnly:
-            return " (copied to clipboard)"
-        case .customKeyCombo:
-            if let key = settings.customPostTranscriptionKey {
-                return " and send \(key.displayString)"
+                // AI Processing
+                SettingsSection(title: "AI Processing") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Text("Use AI Text Enhancement")
+                                .font(.system(size: 13))
+                                .foregroundColor(.primary)
+
+                            Spacer()
+
+                            Toggle("", isOn: $settings.useLLMProcessing)
+                                .toggleStyle(.switch)
+                                .labelsHidden()
+                        }
+
+                        if settings.useLLMProcessing {
+                            Divider()
+
+                            LabeledField(label: "Base URL", placeholder: "http://127.0.0.1:4000", text: $settings.liteLLMBaseURL)
+                            LabeledField(label: "Model", placeholder: "gpt-4o-mini", text: $settings.llmModel)
+                        }
+                    }
+                }
+
+                // Writing Style
+                if settings.useLLMProcessing {
+                    SettingsSection(title: "Writing Style") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(AppSettings.WritingStyle.allCases, id: \.self) { style in
+                                RadioRow(
+                                    title: style.rawValue,
+                                    subtitle: style.description,
+                                    isSelected: settings.writingStyle == style
+                                ) {
+                                    settings.writingStyle = style
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Post Transcription
+                SettingsSection(title: "After Transcription") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(PostTranscriptionAction.allCases, id: \.self) { action in
+                            RadioRow(
+                                title: action.rawValue,
+                                subtitle: action.description,
+                                isSelected: settings.postTranscriptionAction == action
+                            ) {
+                                settings.postTranscriptionAction = action
+                            }
+                        }
+
+                        if settings.postTranscriptionAction == .customKeyCombo {
+                            KeyCaptureField(
+                                label: "Press a key combination",
+                                binding: settings.customPostTranscriptionKey
+                            ) { newBinding in
+                                settings.customPostTranscriptionKey = newBinding
+                            }
+                            .padding(.top, 4)
+                        }
+                    }
+                }
+
+                // Permissions
+                PermissionsSection()
+
+                Spacer().frame(height: 20)
             }
-            return " (set custom key)"
+            .padding(.horizontal, 32)
+            .padding(.top, 24)
         }
+        .background(Color.white)
+        .navigationTitle("")
     }
+}
+
+// MARK: - Section wrapper
+
+private struct SettingsSection<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: Content
 
     var body: some View {
-        Form {
-            Section(header: Text("Processing Mode").font(.headline)) {
-                Toggle("Use LLM Processing", isOn: $settings.useLLMProcessing)
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(.secondary)
 
-                if settings.useLLMProcessing {
-                    Text("Transcribed speech will be cleaned up by an LLM before pasting.")
-                        .font(.caption)
+            content
+        }
+    }
+}
+
+// MARK: - Radio row
+
+private struct RadioRow: View {
+    let title: String
+    let subtitle: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Circle()
+                    .strokeBorder(isSelected ? Color(red: 0.357, green: 0.310, blue: 0.914) : Color.secondary.opacity(0.3), lineWidth: isSelected ? 5 : 1.5)
+                    .frame(width: 16, height: 16)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title)
+                        .font(.system(size: 13))
+                        .foregroundColor(.primary)
+
+                    Text(subtitle)
+                        .font(.system(size: 11))
                         .foregroundColor(.secondary)
-                } else {
-                    HStack(spacing: 4) {
-                        Image(systemName: "bolt.fill")
-                            .foregroundColor(.yellow)
-                        Text("Direct paste mode: Raw transcription pasted immediately (faster)")
-                            .font(.caption)
+                }
+
+                Spacer()
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Labeled text field
+
+private struct LabeledField: View {
+    let label: String
+    let placeholder: String
+    @Binding var text: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+
+            TextField(placeholder, text: $text)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(Color.white)
+                .cornerRadius(6)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                )
+        }
+    }
+}
+
+// MARK: - Key capture field
+
+private struct KeyCaptureField: View {
+    let label: String
+    let binding: KeyBinding?
+    let onCapture: (KeyBinding) -> Void
+
+    @State private var isCapturing = false
+    @State private var monitor: Any?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+
+            Button(action: {
+                startCapturing()
+            }) {
+                HStack {
+                    if isCapturing {
+                        Text("Press any key...")
+                            .font(.system(size: 13))
+                            .foregroundColor(Color(red: 0.357, green: 0.310, blue: 0.914))
+                    } else if let binding = binding {
+                        Text(binding.displayString)
+                            .font(.system(size: 13, weight: .medium, design: .monospaced))
+                            .foregroundColor(.primary)
+                    } else {
+                        Text("Click to set")
+                            .font(.system(size: 13))
                             .foregroundColor(.secondary)
                     }
+
+                    Spacer()
+
+                    if isCapturing {
+                        Image(systemName: "keyboard")
+                            .font(.system(size: 12))
+                            .foregroundColor(Color(red: 0.357, green: 0.310, blue: 0.914))
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(isCapturing ? Color(red: 0.357, green: 0.310, blue: 0.914).opacity(0.06) : Color.white)
+                .cornerRadius(6)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(isCapturing ? Color(red: 0.357, green: 0.310, blue: 0.914).opacity(0.4) : Color.secondary.opacity(0.2), lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func startCapturing() {
+        #if os(macOS)
+        isCapturing = true
+
+        // Listen for key events
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { event in
+            if event.type == .keyDown {
+                let captured = KeyBinding(
+                    keyCode: event.keyCode,
+                    modifiers: event.modifierFlags.intersection([.command, .option, .control, .shift, .function]).rawValue,
+                    isModifierOnly: false
+                )
+                onCapture(captured)
+                stopCapturing()
+                return nil // consume the event
+            } else if event.type == .flagsChanged {
+                let flags = event.modifierFlags.intersection([.command, .option, .control, .shift, .function])
+                if !flags.isEmpty {
+                    let captured = KeyBinding(
+                        keyCode: event.keyCode,
+                        modifiers: flags.rawValue,
+                        isModifierOnly: true
+                    )
+                    onCapture(captured)
+                    stopCapturing()
+                    return nil
                 }
             }
+            return event
+        }
+        #endif
+    }
 
-            Section(header: Text("LiteLLM Configuration").font(.headline)) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Base URL")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    TextField("http://127.0.0.1:4000", text: $settings.liteLLMBaseURL)
-                        .textFieldStyle(.roundedBorder)
-                }
+    private func stopCapturing() {
+        #if os(macOS)
+        if let monitor = monitor {
+            NSEvent.removeMonitor(monitor)
+        }
+        monitor = nil
+        isCapturing = false
+        #endif
+    }
+}
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("API Key (optional)")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    SecureField("Leave blank if not required", text: $settings.liteLLMApiKey)
-                        .textFieldStyle(.roundedBorder)
-                }
+// MARK: - Permission row
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Model")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    TextField("gpt-4o-mini", text: $settings.llmModel)
-                        .textFieldStyle(.roundedBorder)
-                }
-            }
-            .opacity(settings.useLLMProcessing ? 1.0 : 0.5)
-            .disabled(!settings.useLLMProcessing)
+private struct PermissionRow: View {
+    let icon: String
+    let title: String
+    let granted: Bool
+    let action: () -> Void
 
-            Section(header: Text("Writing Preferences").font(.headline)) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Writing Style")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Picker("", selection: $settings.writingStyle) {
-                        ForEach(AppSettings.WritingStyle.allCases, id: \.self) { style in
-                            VStack(alignment: .leading) {
-                                Text(style.rawValue)
-                                Text(style.description)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                            .tag(style)
-                        }
-                    }
-                    .pickerStyle(.radioGroup)
-                }
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(.system(size: 14))
+                    .foregroundColor(granted ? Color(red: 0.357, green: 0.310, blue: 0.914) : .secondary)
+                    .frame(width: 18)
 
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Formality")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Picker("", selection: $settings.formality) {
-                        ForEach(AppSettings.Formality.allCases, id: \.self) { formality in
-                            Text(formality.rawValue).tag(formality)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                }
+                Text(title)
+                    .font(.system(size: 13))
+                    .foregroundColor(.primary)
 
-                Toggle("Remove filler words (um, uh, like, etc.)", isOn: $settings.removeFiller)
-                Toggle("Auto-format punctuation and capitalization", isOn: $settings.autoFormat)
-            }
-            .opacity(settings.useLLMProcessing ? 1.0 : 0.5)
-            .disabled(!settings.useLLMProcessing)
+                Spacer()
 
-            Section(header: Text("Recording Key").font(.headline)) {
-                VStack(alignment: .leading, spacing: 12) {
-                    Picker("Trigger Key", selection: $settings.recordingKeyPreset) {
-                        ForEach(RecordingKeyPreset.allCases, id: \.self) { preset in
-                            VStack(alignment: .leading) {
-                                Text(preset.rawValue)
-                            }
-                            .tag(preset)
-                        }
-                    }
-                    .pickerStyle(.radioGroup)
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(granted ? Color(red: 0.357, green: 0.310, blue: 0.914) : Color.secondary.opacity(0.2))
+                        .frame(width: 40, height: 22)
+                        .animation(.easeInOut(duration: 0.2), value: granted)
 
-                    Text(settings.recordingKeyPreset.description)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                    if settings.recordingKeyPreset == .custom {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Custom Key")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            KeyCaptureView(keyBinding: $settings.customRecordingKey)
-                        }
-                        .padding(.top, 4)
-                    }
+                    Circle()
+                        .fill(Color.white)
+                        .frame(width: 18, height: 18)
+                        .offset(x: granted ? 9 : -9)
+                        .animation(.easeInOut(duration: 0.2), value: granted)
                 }
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(Color.white)
+            .cornerRadius(8)
+        }
+        .buttonStyle(.plain)
+        .disabled(granted)
+    }
+}
 
-            Section(header: Text("After Transcription").font(.headline)) {
-                VStack(alignment: .leading, spacing: 12) {
-                    Picker("Action", selection: $settings.postTranscriptionAction) {
-                        ForEach(PostTranscriptionAction.allCases, id: \.self) { action in
-                            VStack(alignment: .leading) {
-                                Text(action.rawValue)
-                            }
-                            .tag(action)
-                        }
-                    }
-                    .pickerStyle(.radioGroup)
+// MARK: - Permissions section
 
-                    Text(settings.postTranscriptionAction.description)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+private struct PermissionsSection: View {
+    @State private var hasAccessibilityPermission = false
+    @State private var hasMicrophonePermission = false
+    @State private var hasSpeechRecognitionPermission = false
+    @State private var permissionCheckTimer: Timer?
 
-                    if settings.postTranscriptionAction == .customKeyCombo {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Custom Key Combo")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            KeyCaptureView(keyBinding: $settings.customPostTranscriptionKey)
-                        }
-                        .padding(.top, 4)
+    var body: some View {
+        SettingsSection(title: "Permissions") {
+            VStack(spacing: 8) {
+                PermissionRow(
+                    icon: "mic.fill",
+                    title: "Microphone",
+                    granted: hasMicrophonePermission
+                ) {
+                    PermissionsHelper.requestMicrophonePermission()
+                    recheckPermissions()
+                }
+
+                PermissionRow(
+                    icon: "hand.raised.fill",
+                    title: "Accessibility",
+                    granted: hasAccessibilityPermission
+                ) {
+                    PermissionsHelper.requestAccessibilityPermissions()
+                    recheckPermissions()
+                }
+
+                PermissionRow(
+                    icon: "waveform",
+                    title: "Speech Recognition",
+                    granted: hasSpeechRecognitionPermission
+                ) {
+                    Task {
+                        await PermissionsHelper.requestSpeechRecognitionPermission()
+                        recheckPermissions()
                     }
                 }
-            }
-
-            Section(header: Text("How to Use").font(.headline)) {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(alignment: .top) {
-                        Text("1.")
-                            .fontWeight(.bold)
-                        Text("Press and hold \(recordingKeyDisplayName) to start recording")
-                    }
-                    HStack(alignment: .top) {
-                        Text("2.")
-                            .fontWeight(.bold)
-                        Text("Speak your text naturally")
-                    }
-                    HStack(alignment: .top) {
-                        Text("3.")
-                            .fontWeight(.bold)
-                        Text("Release \(recordingKeyDisplayName) to transcribe\(postActionDescription)")
-                    }
-                }
-                .font(.system(.body, design: .rounded))
-                .foregroundColor(.secondary)
             }
         }
-        .formStyle(.grouped)
-        .navigationTitle("Settings")
+        .onAppear {
+            checkPermissions()
+            permissionCheckTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: true) { _ in
+                checkPermissions()
+            }
+        }
+        .onDisappear {
+            permissionCheckTimer?.invalidate()
+            permissionCheckTimer = nil
+        }
+    }
+
+    private func checkPermissions() {
+        hasAccessibilityPermission = PermissionsHelper.checkAccessibilityPermissions()
+        hasMicrophonePermission = PermissionsHelper.checkMicrophonePermission()
+        hasSpeechRecognitionPermission = PermissionsHelper.checkSpeechRecognitionPermission()
+    }
+
+    private func recheckPermissions() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            checkPermissions()
+        }
     }
 }
 

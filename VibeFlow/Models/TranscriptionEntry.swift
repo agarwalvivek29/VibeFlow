@@ -10,6 +10,7 @@ import SwiftData
 
 @Model
 final class TranscriptionEntry {
+    @Attribute(.unique) var id: UUID
     var rawTranscript: String
     var processedText: String
     var timestamp: Date
@@ -20,6 +21,7 @@ final class TranscriptionEntry {
     var wordCount: Int
 
     init(
+        id: UUID = UUID(),
         rawTranscript: String,
         processedText: String,
         timestamp: Date = Date(),
@@ -29,6 +31,7 @@ final class TranscriptionEntry {
         usedLLMProcessing: Bool,
         wordCount: Int
     ) {
+        self.id = id
         self.rawTranscript = rawTranscript
         self.processedText = processedText
         self.timestamp = timestamp

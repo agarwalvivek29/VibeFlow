@@ -2,27 +2,18 @@
 //  RootView.swift
 //  VibeFlow
 //
-//  Root view that handles onboarding vs main app routing
+//  Root view that routes to the main app
 //
 
 import SwiftUI
 import SwiftData
 
 struct RootView: View {
-    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var controller: ConversationController
 
     var body: some View {
-        Group {
-            if hasCompletedOnboarding {
-                MainView()
-            } else {
-                OnboardingContainerView {
-                    hasCompletedOnboarding = true
-                }
-            }
-        }
+        MainView()
     }
 }
 

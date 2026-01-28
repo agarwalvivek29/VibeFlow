@@ -34,12 +34,18 @@ class PermissionsHelper {
     static func openAccessibilityPreferences() {
         print("🔐 Opening Accessibility Settings...")
 
-        // Simply open System Settings app - easier and more reliable
-        let settingsURL = URL(fileURLWithPath: "/System/Applications/System Settings.app")
-        NSWorkspace.shared.open(settingsURL)
+        // Try to open directly to Accessibility settings
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
+            print("🔐 Opened Privacy & Security → Accessibility directly")
+        } else {
+            // Fallback: open System Settings
+            let settingsURL = URL(fileURLWithPath: "/System/Applications/System Settings.app")
+            NSWorkspace.shared.open(settingsURL)
+            print("🔐 System Settings opened. Navigate to: Privacy & Security → Accessibility")
+        }
 
-        print("🔐 System Settings opened. Navigate to: Privacy & Security → Accessibility")
-        print("🔐 Then click the + button and add: VibeFlow (or the Xcode debug build)")
+        print("🔐 Then toggle VibeFlow (or the Xcode debug build) to enable it")
     }
 
     // MARK: - Microphone
@@ -63,9 +69,17 @@ class PermissionsHelper {
 
     static func openMicrophonePreferences() {
         print("🎤 Opening Microphone Settings...")
-        let settingsURL = URL(fileURLWithPath: "/System/Applications/System Settings.app")
-        NSWorkspace.shared.open(settingsURL)
-        print("🎤 Navigate to: Privacy & Security → Microphone")
+
+        // Try to open directly to Microphone settings
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
+            NSWorkspace.shared.open(url)
+            print("🎤 Opened Privacy & Security → Microphone directly")
+        } else {
+            // Fallback
+            let settingsURL = URL(fileURLWithPath: "/System/Applications/System Settings.app")
+            NSWorkspace.shared.open(settingsURL)
+            print("🎤 Navigate to: Privacy & Security → Microphone")
+        }
     }
 
     // MARK: - Speech Recognition
@@ -92,8 +106,16 @@ class PermissionsHelper {
 
     static func openSpeechRecognitionPreferences() {
         print("🗣️ Opening Speech Recognition Settings...")
-        let settingsURL = URL(fileURLWithPath: "/System/Applications/System Settings.app")
-        NSWorkspace.shared.open(settingsURL)
-        print("🗣️ Navigate to: Privacy & Security → Speech Recognition")
+
+        // Try to open directly to Speech Recognition settings
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition") {
+            NSWorkspace.shared.open(url)
+            print("🗣️ Opened Privacy & Security → Speech Recognition directly")
+        } else {
+            // Fallback
+            let settingsURL = URL(fileURLWithPath: "/System/Applications/System Settings.app")
+            NSWorkspace.shared.open(settingsURL)
+            print("🗣️ Navigate to: Privacy & Security → Speech Recognition")
+        }
     }
 }
