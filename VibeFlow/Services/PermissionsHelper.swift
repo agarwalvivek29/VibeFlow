@@ -32,7 +32,7 @@ class PermissionsHelper {
     }
 
     static func openAccessibilityPreferences() {
-        print("🔐 Opening Accessibility Settings...")
+        print("🔐 Opening Accessibility Settings directly...")
 
         // Try to open directly to Accessibility settings
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
