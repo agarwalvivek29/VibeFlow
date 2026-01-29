@@ -2,7 +2,7 @@
 //  SidebarView.swift
 //  VibeFlow
 //
-//  Sidebar navigation for the main app
+//  Minimal sidebar
 //
 
 import SwiftUI
@@ -12,72 +12,82 @@ struct SidebarView: View {
     @EnvironmentObject var controller: ConversationController
 
     var body: some View {
-        List(NavigationItem.allCases, selection: $selection) { item in
-            NavigationLink(value: item) {
-                Label(item.label, systemImage: item.icon)
-            }
-        }
-        .listStyle(.sidebar)
-        .safeAreaInset(edge: .top) {
+        VStack(spacing: 0) {
             brandHeader
-        }
-        .safeAreaInset(edge: .bottom) {
+            navigationItems
+            Spacer()
             statusFooter
         }
+        .background(Color.white)
     }
 
     private var brandHeader: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "waveform.circle.fill")
-                .font(.system(size: 24))
-                .foregroundStyle(
-                    LinearGradient(
-                        colors: [.primary, .primary.opacity(0.7)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 0) {
-                    Text("Vibe")
-                        .font(.system(size: 16, weight: .bold, design: .rounded))
-                    Text("Flow")
-                        .font(.system(size: 16, weight: .light, design: .rounded))
-                        .foregroundColor(.secondary)
-                }
-            }
-
-            Spacer()
+        HStack(spacing: 0) {
+            Text("Vibe")
+                .font(.system(size: 18, weight: .semibold))
+            Text("Flow")
+                .font(.system(size: 18, weight: .light))
+                .foregroundColor(.secondary)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 24)
+        .padding(.top, 32)
+        .padding(.bottom, 40)
+    }
+
+    private var navigationItems: some View {
+        VStack(spacing: 4) {
+            ForEach(NavigationItem.allCases) { item in
+                navButton(for: item)
+            }
+        }
+    }
+
+    private func navButton(for item: NavigationItem) -> some View {
+        Button(action: { selection = item }) {
+            HStack(spacing: 12) {
+                Image(systemName: item.icon)
+                    .font(.system(size: 15))
+                    .foregroundColor(selection == item ? Color(red: 0.357, green: 0.310, blue: 0.914) : .secondary)
+                    .frame(width: 18)
+
+                Text(item.label)
+                    .font(.system(size: 14))
+                    .foregroundColor(selection == item ? .primary : .secondary)
+
+                Spacer()
+            }
+            .contentShape(Rectangle())
+            .padding(.horizontal, 24)
+            .padding(.vertical, 12)
+            .background(selection == item ? Color(red: 0.357, green: 0.310, blue: 0.914).opacity(0.06) : Color.clear)
+        }
+        .buttonStyle(.plain)
     }
 
     private var statusFooter: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             Circle()
-                .fill(controller.isRecording ? Color.red : Color.green)
-                .frame(width: 8, height: 8)
+                .fill(controller.isRecording ? Color.red : Color(red: 0.357, green: 0.310, blue: 0.914))
+                .frame(width: 7, height: 7)
 
-            Text(controller.isRecording ? "Recording..." : "Ready")
-                .font(.caption)
+            Text(controller.isRecording ? "Recording" : "Ready")
+                .font(.system(size: 12))
                 .foregroundColor(.secondary)
 
             Spacer()
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+        .padding(.horizontal, 24)
+        .padding(.vertical, 18)
+        .background(Color(red: 0.98, green: 0.98, blue: 0.99))
     }
 }
 
 #Preview {
-    SidebarView(selection: .constant(.home))
+    SidebarView(selection: .constant(.dashboard))
         .environmentObject(ConversationController(
             llm: LiteLLMClient(config: .init(baseURL: URL(string: "http://127.0.0.1:4000")!, apiKey: nil)),
             settings: AppSettings()
         ))
-        .frame(width: 220)
+        .frame(width: 260, height: 600)
 }

@@ -9,19 +9,24 @@ import SwiftUI
 import SwiftData
 
 struct MainView: View {
-    @State private var selectedNavigation: NavigationItem? = .home
+    @State private var selectedNavigation: NavigationItem? = .dashboard
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var controller: ConversationController
 
     var body: some View {
-        NavigationSplitView {
+        HStack(spacing: 0) {
+            // Fixed sidebar
             SidebarView(selection: $selectedNavigation)
-                .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 350)
-        } detail: {
+                .frame(width: 260)
+
+            Divider()
+
+            // Detail view
             detailView
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .navigationSplitViewStyle(.balanced)
-        .frame(minWidth: 800, minHeight: 500)
+        .frame(width: 1000, height: 650)
+        .background(Color.white)
         .onAppear {
             // Ensure monitors are installed when MainView appears
             // (handles case where onboarding was just completed)
@@ -37,14 +42,14 @@ struct MainView: View {
     @ViewBuilder
     private var detailView: some View {
         switch selectedNavigation {
-        case .home:
-            HomeView()
+        case .dashboard:
+            DashboardView(selectedNavigation: $selectedNavigation)
         case .history:
             HistoryView()
         case .settings:
             SettingsView(settings: settings)
         case .none:
-            HomeView()
+            DashboardView(selectedNavigation: $selectedNavigation)
         }
     }
 }

@@ -8,7 +8,7 @@
 import Foundation
 
 enum NavigationItem: String, CaseIterable, Identifiable {
-    case home
+    case dashboard
     case history
     case settings
 
@@ -16,7 +16,7 @@ enum NavigationItem: String, CaseIterable, Identifiable {
 
     var icon: String {
         switch self {
-        case .home: return "house.fill"
+        case .dashboard: return "square.grid.2x2.fill"
         case .history: return "clock.fill"
         case .settings: return "gearshape.fill"
         }

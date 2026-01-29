@@ -2,189 +2,230 @@
 //  HomeView.swift
 //  VibeFlow
 //
-//  Home dashboard view
+//  Dashboard view with status, stats, and recent transcriptions
 //
 
 import SwiftUI
+import SwiftData
+#if os(macOS)
+import AppKit
+#endif
 
-struct HomeView: View {
+struct DashboardView: View {
+    @Binding var selectedNavigation: NavigationItem?
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var controller: ConversationController
+    @Environment(\.modelContext) private var modelContext
+    @Query(sort: \TranscriptionEntry.timestamp, order: .reverse) private var entries: [TranscriptionEntry]
+    @State private var copiedEntryId: UUID?
     @State private var hasAccessibilityPermission = false
     @State private var hasMicrophonePermission = false
     @State private var hasSpeechRecognitionPermission = false
-    @State private var permissionCheckTimer: Timer?
+
+    private var recentEntries: [TranscriptionEntry] {
+        Array(entries.prefix(5))
+    }
+
+    private var totalWords: Int {
+        entries.reduce(0) { $0 + $1.wordCount }
+    }
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 24) {
-                // Brand banner
-                BrandHeaderView(style: .banner)
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 8)
+            VStack(alignment: .leading, spacing: 24) {
+                // Permissions banner (only when missing)
+                if !allPermissionsGranted {
+                    permissionsBanner
+                }
+
+                // Status card
+                statusCard
 
                 // Quick stats
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Status")
-                        .font(.headline)
-                        .foregroundColor(.secondary)
+                statsRow
 
-                    HStack(spacing: 16) {
-                        StatCard(
-                            icon: settings.useLLMProcessing ? "brain" : "bolt.fill",
-                            value: settings.useLLMProcessing ? "AI Processing" : "Direct Paste",
-                            label: "Processing Mode",
-                            iconColor: settings.useLLMProcessing ? .purple : .yellow
-                        )
+                // Recent transcriptions
+                recentTranscriptionsSection
 
-                        StatCard(
-                            icon: statusIcon,
-                            value: statusText,
-                            label: "Status",
-                            iconColor: statusColor
-                        )
-                    }
-                }
-
-                // Permissions section (if any missing)
-                if !hasAccessibilityPermission || !hasMicrophonePermission || !hasSpeechRecognitionPermission {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Permissions Required")
-                            .font(.headline)
-                            .foregroundColor(.secondary)
-
-                        VStack(spacing: 8) {
-                            if !hasAccessibilityPermission {
-                                PermissionRow(
-                                    icon: "hand.raised.fill",
-                                    title: "Accessibility",
-                                    description: "Required for global hotkey",
-                                    granted: false,
-                                    grantAction: {
-                                        PermissionsHelper.requestAccessibilityPermissions()
-                                        recheckPermissions()
-                                    },
-                                    openSettingsAction: PermissionsHelper.openAccessibilityPreferences
-                                )
-                            }
-
-                            if !hasMicrophonePermission {
-                                PermissionRow(
-                                    icon: "mic.fill",
-                                    title: "Microphone",
-                                    description: "Required for voice recording",
-                                    granted: false,
-                                    grantAction: {
-                                        PermissionsHelper.requestMicrophonePermission()
-                                        recheckPermissions()
-                                    },
-                                    openSettingsAction: PermissionsHelper.openMicrophonePreferences
-                                )
-                            }
-
-                            if !hasSpeechRecognitionPermission {
-                                PermissionRow(
-                                    icon: "waveform",
-                                    title: "Speech Recognition",
-                                    description: "Required for transcription",
-                                    granted: false,
-                                    grantAction: {
-                                        Task {
-                                            await PermissionsHelper.requestSpeechRecognitionPermission()
-                                            recheckPermissions()
-                                        }
-                                    },
-                                    openSettingsAction: PermissionsHelper.openSpeechRecognitionPreferences
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // How to use section
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("How to Use")
-                        .font(.headline)
-                        .foregroundColor(.secondary)
-
-                    VStack(alignment: .leading, spacing: 16) {
-                        InstructionRow(step: "1", text: "Press and hold the Fn key to start recording")
-                        InstructionRow(step: "2", text: "Speak naturally into your microphone")
-                        InstructionRow(step: "3", text: "Release the Fn key to transcribe and paste")
-                    }
-                    .padding()
-                    .background(Color(nsColor: .controlBackgroundColor))
-                    .cornerRadius(12)
-                }
-
-                // Test button for debugging
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Testing")
-                        .font(.headline)
-                        .foregroundColor(.secondary)
-
-                    HStack(spacing: 12) {
-                        Button {
-                            controller.testStartRecording()
-                        } label: {
-                            Label("Start Recording", systemImage: "mic.fill")
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(controller.isRecording)
-
-                        if controller.isRecording {
-                            Button {
-                                Task {
-                                    await controller.testStopRecording()
-                                }
-                            } label: {
-                                Label("Stop Recording", systemImage: "stop.fill")
-                            }
-                            .buttonStyle(.bordered)
-                        }
-                    }
-
-                    Text("Use Right Command key as a hotkey fallback for testing")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-
-                Spacer()
+                // Hotkey hint
+                hotkeyHint
             }
-            .padding(24)
+            .padding(32)
         }
-        .navigationTitle("Home")
-        .onAppear {
-            checkPermissions()
-            permissionCheckTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: true) { _ in
-                checkPermissions()
-            }
-        }
-        .onDisappear {
-            permissionCheckTimer?.invalidate()
-            permissionCheckTimer = nil
-        }
+        .background(Color.white)
+        .navigationTitle("")
+        .onAppear { checkPermissions() }
     }
 
-    // MARK: - Status Computed Properties
+    // MARK: - Permissions Banner
 
     private var allPermissionsGranted: Bool {
         hasAccessibilityPermission && hasMicrophonePermission && hasSpeechRecognitionPermission
     }
 
-    private var statusIcon: String {
-        if controller.isRecording {
-            return "mic.fill"
-        } else if !allPermissionsGranted {
-            return "exclamationmark.triangle.fill"
-        } else {
-            return "checkmark.circle.fill"
+    private var permissionsBanner: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 16))
+                .foregroundColor(.orange)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Setup Required")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.primary)
+                Text("Some permissions are missing. Grant them in Settings to start using VibeFlow.")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+            }
+
+            Spacer()
+
+            Button(action: { selectedNavigation = .settings }) {
+                Text("Open Settings")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 6)
+                    .background(Color.orange)
+                    .cornerRadius(6)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(16)
+        .background(Color.orange.opacity(0.08))
+        .cornerRadius(10)
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Color.orange.opacity(0.2), lineWidth: 1)
+        )
+    }
+
+    private func checkPermissions() {
+        hasAccessibilityPermission = PermissionsHelper.checkAccessibilityPermissions()
+        hasMicrophonePermission = PermissionsHelper.checkMicrophonePermission()
+        hasSpeechRecognitionPermission = PermissionsHelper.checkSpeechRecognitionPermission()
+    }
+
+    // MARK: - Status Card
+
+    private var statusCard: some View {
+        HStack(spacing: 14) {
+            Circle()
+                .fill(statusColor)
+                .frame(width: 10, height: 10)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(statusText)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(.primary)
+
+                Text("Hotkey: \(settings.activeRecordingKey.displayString)")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+            }
+
+            Spacer()
+
+            if controller.isRecording {
+                Button(action: {
+                    Task { await controller.testStopRecording() }
+                }) {
+                    Text("Stop")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 6)
+                        .background(Color.red)
+                        .cornerRadius(6)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(20)
+        .background(Color(red: 0.98, green: 0.98, blue: 0.99))
+        .cornerRadius(10)
+    }
+
+    // MARK: - Stats
+
+    private var statsRow: some View {
+        HStack(spacing: 16) {
+            StatBox(label: "Transcriptions", value: "\(entries.count)")
+            StatBox(label: "Words", value: "\(totalWords)")
         }
     }
 
+    // MARK: - Recent Transcriptions
+
+    private var recentTranscriptionsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Recent Transcriptions")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(.secondary)
+
+            if recentEntries.isEmpty {
+                HStack {
+                    Spacer()
+                    VStack(spacing: 8) {
+                        Image(systemName: "waveform")
+                            .font(.system(size: 24))
+                            .foregroundColor(.secondary.opacity(0.5))
+                        Text("No transcriptions yet")
+                            .font(.system(size: 13))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.vertical, 24)
+                    Spacer()
+                }
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(recentEntries) { entry in
+                        TranscriptRow(
+                            entry: entry,
+                            isCopied: copiedEntryId == entry.id,
+                            onCopy: {
+                                copyToClipboard(entry.displayText)
+                                copiedEntryId = entry.id
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                    if copiedEntryId == entry.id {
+                                        copiedEntryId = nil
+                                    }
+                                }
+                            },
+                            onDelete: {
+                                modelContext.delete(entry)
+                            }
+                        )
+                        if entry.id != recentEntries.last?.id {
+                            Divider()
+                                .padding(.horizontal, 32)
+                        }
+                    }
+                }
+                .background(Color(red: 0.98, green: 0.98, blue: 0.99))
+                .cornerRadius(8)
+            }
+        }
+    }
+
+    // MARK: - Hotkey Hint
+
+    private var hotkeyHint: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "keyboard")
+                .font(.system(size: 11))
+            Text("Press \(settings.activeRecordingKey.displayString) to start recording")
+                .font(.system(size: 12))
+        }
+        .foregroundColor(.secondary)
+        .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    // MARK: - Helpers
+
     private var statusText: String {
         if controller.isRecording {
-            return "Recording..."
+            return "Recording"
         } else if !allPermissionsGranted {
             return "Setup Required"
         } else {
@@ -198,100 +239,47 @@ struct HomeView: View {
         } else if !allPermissionsGranted {
             return .orange
         } else {
-            return .green
+            return Color(red: 0.357, green: 0.310, blue: 0.914)
         }
     }
 
-    // MARK: - Permission Helpers
-
-    private func checkPermissions() {
-        let newAccessibility = PermissionsHelper.checkAccessibilityPermissions()
-        let newMicrophone = PermissionsHelper.checkMicrophonePermission()
-        let newSpeech = PermissionsHelper.checkSpeechRecognitionPermission()
-
-        hasAccessibilityPermission = newAccessibility
-        hasMicrophonePermission = newMicrophone
-        hasSpeechRecognitionPermission = newSpeech
-    }
-
-    private func recheckPermissions() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-            checkPermissions()
-        }
+    private func copyToClipboard(_ text: String) {
+        #if os(macOS)
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(text, forType: .string)
+        #endif
     }
 }
 
-// MARK: - Supporting Views
+// MARK: - Stat Box
 
-struct PermissionRow: View {
-    let icon: String
-    let title: String
-    let description: String
-    let granted: Bool
-    let grantAction: () -> Void
-    let openSettingsAction: () -> Void
+private struct StatBox: View {
+    let label: String
+    let value: String
 
     var body: some View {
-        HStack {
-            Image(systemName: icon)
-                .font(.title3)
-                .foregroundColor(.orange)
-                .frame(width: 32)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-
-                Text(description)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-
-            Spacer()
-
-            Button("Grant") {
-                grantAction()
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-
-            Button("Settings") {
-                openSettingsAction()
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+        VStack(spacing: 4) {
+            Text(value)
+                .font(.system(size: 24, weight: .semibold, design: .rounded))
+                .foregroundColor(.primary)
+            Text(label)
+                .font(.system(size: 12))
+                .foregroundColor(.secondary)
         }
-        .padding()
-        .background(Color.orange.opacity(0.1))
-        .cornerRadius(8)
-    }
-}
-
-struct InstructionRow: View {
-    let step: String
-    let text: String
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Text(step)
-                .font(.headline)
-                .foregroundColor(.accentColor)
-                .frame(width: 24, height: 24)
-                .background(Color.accentColor.opacity(0.1))
-                .cornerRadius(6)
-
-            Text(text)
-                .font(.body)
-        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 16)
+        .background(Color(red: 0.98, green: 0.98, blue: 0.99))
+        .cornerRadius(10)
     }
 }
 
 #Preview {
-    HomeView()
+    DashboardView(selectedNavigation: .constant(.dashboard))
         .environmentObject(AppSettings())
         .environmentObject(ConversationController(
             llm: LiteLLMClient(config: .init(baseURL: URL(string: "http://127.0.0.1:4000")!, apiKey: nil)),
             settings: AppSettings()
         ))
+        .modelContainer(for: TranscriptionEntry.self, inMemory: true)
 }

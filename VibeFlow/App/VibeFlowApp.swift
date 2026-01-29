@@ -22,7 +22,18 @@ struct VibeFlowApp: App {
         do {
             return try ModelContainer(for: schema, configurations: [modelConfiguration])
         } catch {
-            fatalError("Could not create ModelContainer: \(error)")
+            // Schema migration failed — delete old store and retry
+            print("⚠️ SwiftData migration failed, recreating store: \(error)")
+            let url = modelConfiguration.url
+            try? FileManager.default.removeItem(at: url)
+            // Also remove journal/wal files
+            try? FileManager.default.removeItem(at: url.deletingPathExtension().appendingPathExtension("store-shm"))
+            try? FileManager.default.removeItem(at: url.deletingPathExtension().appendingPathExtension("store-wal"))
+            do {
+                return try ModelContainer(for: schema, configurations: [modelConfiguration])
+            } catch {
+                fatalError("Could not create ModelContainer after reset: \(error)")
+            }
         }
     }()
 
@@ -46,6 +57,9 @@ struct VibeFlowApp: App {
             RootView()
                 .environmentObject(settings)
                 .environmentObject(controller)
+                .preferredColorScheme(.light)
+                .background(Color.white)
+                .frame(minWidth: 1000, minHeight: 650)
                 .onAppear {
                     print("📱 App onAppear - checking permissions before installing monitors...")
 
@@ -94,6 +108,13 @@ struct VibeFlowApp: App {
                 }
         }
         .modelContainer(sharedModelContainer)
+        .windowStyle(.hiddenTitleBar)
+        .windowResizability(.contentSize)
+        .defaultSize(width: 1000, height: 650)
+        .commands {
+            // Remove default window commands for cleaner look
+            CommandGroup(replacing: .newItem) { }
+        }
     }
 
     private func updateLLMClient() {
