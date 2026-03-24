@@ -1,8 +1,10 @@
-# VibeFlow
+# 🎙️ VibeFlow
 
-**Voice-to-Text for Engineers** — Press, speak, paste. Fully offline.
+**⚡ 10x your input speed. Seriously.**
 
-VibeFlow is an open-source macOS voice dictation app. Hold a hotkey, speak naturally, release — clean, formatted text gets pasted into any application. No cloud. No subscriptions. Everything runs locally on your Mac.
+Developers who use VibeFlow type less and ship more. Hold a key, speak your thought, release — perfectly formatted text lands in your editor, terminal, Slack, wherever. No context switching. No breaking flow. Just pure velocity. 🚀
+
+Built by engineers, for engineers. Fully offline. Zero subscriptions.
 
 <p align="center">
   <img src="docs/screenshots/dashboard.png" width="700" alt="VibeFlow Dashboard — 45 transcriptions, 1099 words, AI-enhanced history" />
@@ -17,21 +19,30 @@ VibeFlow is an open-source macOS voice dictation app. Hold a hotkey, speak natur
   <img src="docs/screenshots/terminal.png" width="700" alt="Built, released, and shipped from the terminal" />
 </p>
 
-## Features
+## 🤔 Why VibeFlow?
 
-- **Universal Dictation** — Works across any macOS app (Slack, VS Code, Notion, browsers, terminals)
-- **Dual Speech Engines** — Choose between Apple Speech Recognition or WhisperKit (on-device Whisper)
-- **Dual Text Cleanup** — Local SLM (Qwen 0.5B via MLX) or remote LLM endpoint
-- **Fully Offline Mode** — WhisperKit + Local SLM = zero network dependency
-- **Regex Filler Removal** — Strips "um", "uh", "like", "you know" before AI processing
-- **Custom Dictionary** — Add technical terms (Kubernetes, Terraform, gRPC) for better recognition
-- **Dynamic Island HUD** — Minimal notch overlay with live waveform during recording
-- **Multi-Monitor Support** — HUD follows your active screen
-- **Writing Style** — Casual, Professional, Creative, or Technical
-- **Transcription History** — Browse, search, and copy past transcriptions
-- **Configurable Hotkeys** — Fn, Right Command, or any custom key combo
+You think at ~400 words per minute. You type at ~80. That's an **80% bottleneck** between your brain and your code. VibeFlow obliterates it. 💥
 
-## How It Works
+- 💬 Dictate a Slack message in 3 seconds instead of 30
+- 📝 Narrate a PR description while reviewing the diff
+- 📖 Draft docs, comments, commit messages — all at the speed of thought
+- ⌨️ Your hands stay on the keyboard, your cursor stays where it was
+
+## ✨ Features
+
+- 🌍 **Universal Dictation** — Works in any macOS app: VS Code, Slack, Notion, browsers, terminals, you name it
+- 🎤 **Dual Speech Engines** — Apple Speech Recognition (instant) or WhisperKit (on-device Whisper, insanely accurate)
+- 🧠 **Dual Text Cleanup** — Local SLM (Qwen 0.5B via MLX) or any remote LLM endpoint
+- ✈️ **Fully Offline Mode** — WhisperKit + Local SLM = zero network dependency. Airplane mode? No problem
+- 🧹 **Regex Filler Removal** — Strips "um", "uh", "like", "you know" before AI processing
+- 📚 **Custom Dictionary** — Add your jargon (Kubernetes, Terraform, gRPC) for spot-on recognition
+- 🏝️ **Dynamic Island HUD** — Slick notch overlay with live waveform while recording
+- 🖥️ **Multi-Monitor Support** — HUD follows your active screen
+- ✍️ **Writing Styles** — Casual, Professional, Creative, or Technical
+- 🕐 **Transcription History** — Browse, search, and copy past transcriptions
+- ⚙️ **Configurable Hotkeys** — Fn, Right Command, or any custom key combo
+
+## 🔧 How It Works
 
 ```
 Hold Fn → Speak → Release → Text appears in your active app
@@ -47,7 +58,7 @@ Hotkey → [Speech Engine] → raw text → [Filler Remover] → [Text Processor
         WhisperKit                                         Remote LLM
 ```
 
-## Engine Options
+## 🏎️ Engine Options
 
 | Stage | Option A | Option B |
 |-------|----------|----------|
@@ -56,22 +67,22 @@ Hotkey → [Speech Engine] → raw text → [Filler Remover] → [Text Processor
 
 Switch between engines in Settings. Models preload eagerly when selected.
 
-## Requirements
+## 📋 Requirements
 
 - macOS 14.0+ (Sonoma)
 - Apple Silicon (M1 or later) — required for MLX and WhisperKit
-- Microphone permission
-- Accessibility permission (for global hotkey)
-- Speech Recognition permission (for Apple Speech engine)
+- 🎙️ Microphone permission
+- ♿ Accessibility permission (for global hotkey)
+- 🗣️ Speech Recognition permission (for Apple Speech engine)
 
-## Getting Started
+## 🚀 Getting Started
 
 ### Build from Source
 
 1. Clone the repo:
    ```bash
-   git clone https://github.com/vibe-bros/WhisprFlow.git
-   cd WhisprFlow
+   git clone https://github.com/agarwalvivek29/VibeFlow.git
+   cd VibeFlow
    ```
 
 2. Open in Xcode:
@@ -88,20 +99,22 @@ Switch between engines in Settings. Models preload eagerly when selected.
 
    > **Note:** If you only want Apple Speech + Remote LLM, you can skip both dependencies — the app builds and runs without them.
 
-4. Build and run: **Cmd+R**
+4. Build and run: **Cmd+R** 🎉
 
 5. Grant permissions when prompted:
    - **Accessibility** — System Settings → Privacy & Security → Accessibility → enable VibeFlow
    - **Microphone** — prompted automatically
    - **Speech Recognition** — prompted automatically
 
-### First Dictation
+### 🎤 First Dictation
 
 1. Press and hold **Fn** key
 2. Speak naturally
 3. Release — text appears in your active app
 
-## Architecture
+That's it. You're already faster. 🏃‍♂️💨
+
+## 🏗️ Architecture
 
 ### Protocol-Based Engine System
 
@@ -132,12 +145,12 @@ protocol TextProcessingService {
 
 ### Core Services
 
-- **ConversationController** — Orchestrates hotkey → record → process → paste. Loads dictionary terms from SwiftData, applies regex filler removal, then routes to the active text processor.
-- **FillerRemover** — Static regex patterns strip filler words before model processing.
-- **ModelDownloadManager** — Downloads and caches Whisper/SLM models to `~/Library/Application Support/VibeFlow/Models/`.
-- **PermissionsHelper** — Checks/requests Accessibility, Microphone, Speech Recognition permissions.
+- 🎛️ **ConversationController** — Orchestrates hotkey → record → process → paste. Loads dictionary terms from SwiftData, applies regex filler removal, then routes to the active text processor.
+- 🧹 **FillerRemover** — Static regex patterns strip filler words before model processing.
+- 📦 **ModelDownloadManager** — Downloads and caches Whisper/SLM models to `~/Library/Application Support/VibeFlow/Models/`.
+- 🔐 **PermissionsHelper** — Checks/requests Accessibility, Microphone, Speech Recognition permissions.
 
-### Settings (AppSettings.swift)
+### ⚙️ Settings (AppSettings.swift)
 
 All persisted via UserDefaults. Key enums:
 - `SpeechEngine`: `.apple`, `.whisper`
@@ -146,12 +159,12 @@ All persisted via UserDefaults. Key enums:
 - `WritingStyle`: `.casual`, `.professional`, `.creative`, `.technical`
 - `Formality`: `.informal`, `.neutral`, `.formal`
 
-### Data Models (SwiftData)
+### 💾 Data Models (SwiftData)
 
 - **TranscriptionEntry** — raw transcript, processed text, timestamp, word count, model used
 - **DictionaryEntry** — term, category, isEnabled
 
-### Key Design Decisions
+### 🧩 Key Design Decisions
 
 - **Protocol-based engines** — `SpeechRecognitionService` and `TextProcessingService` allow hot-swapping at runtime
 - **No backend required** — Pure client app. Remote LLM is optional, not mandatory
@@ -159,7 +172,7 @@ All persisted via UserDefaults. Key enums:
 - **Regex before SLM** — Filler words stripped by regex before the language model, reducing tokens and improving output
 - **Dictionary via contextualStrings** — Custom terms fed to Apple Speech's `contextualStrings` API for better recognition
 
-### File Structure
+### 📁 File Structure
 
 ```
 VibeFlow/
@@ -194,7 +207,7 @@ VibeFlow/
 └── Assets.xcassets/
 ```
 
-## Resource Usage
+## 📊 Resource Usage
 
 | Component | Disk | RAM |
 |-----------|------|-----|
@@ -203,9 +216,9 @@ VibeFlow/
 | Qwen 0.5B (4-bit) | ~350 MB | ~500 MB |
 | **Total (fully offline)** | **~450 MB** | **~650 MB** |
 
-Runs comfortably on a base MacBook Air M1 with 8GB RAM.
+Runs comfortably on a base MacBook Air M1 with 8GB RAM. 💪
 
-## Technologies
+## 🛠️ Technologies
 
 - **SwiftUI** + **SwiftData** — UI and persistence
 - **AVFoundation** — Audio capture via AVAudioEngine
@@ -215,14 +228,14 @@ Runs comfortably on a base MacBook Air M1 with 8GB RAM.
 - **AppKit** — NSPanel for HUD overlay, NSEvent for global hotkey monitoring
 - **CoreAudio** — Audio device selection and sample rate detection
 
-## Contributing
+## 🤝 Contributing
 
-PRs welcome. The codebase is designed for extensibility:
+PRs welcome! The codebase is designed for extensibility:
 
-- **Add a new speech engine** — Conform to `SpeechRecognitionService` protocol
-- **Add a new text processor** — Conform to `TextProcessingService` protocol
-- **Improve filler removal** — Edit regex patterns in `FillerRemover.swift`
-- **Better system prompt** — Edit `buildSystemPrompt()` in `AppSettings.swift`
+- 🎤 **Add a new speech engine** — Conform to `SpeechRecognitionService` protocol
+- 🧠 **Add a new text processor** — Conform to `TextProcessingService` protocol
+- 🧹 **Improve filler removal** — Edit regex patterns in `FillerRemover.swift`
+- 💬 **Better system prompt** — Edit `buildSystemPrompt()` in `AppSettings.swift`
 
 ### Build Requirements
 
@@ -237,10 +250,10 @@ type: description
 ```
 Types: `feat`, `fix`, `refactor`, `docs`, `chore`
 
-## License
+## 📄 License
 
 MIT License. See [LICENSE](LICENSE) for details.
 
 ---
 
-**VibeFlow** — Where Engineers Can Truly Vibe.
+**🎙️ VibeFlow** — Stop typing. Start shipping. 🚀
