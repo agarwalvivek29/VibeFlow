@@ -3,37 +3,31 @@
 //
 // Local small language model processor using MLX for fully offline text processing.
 //
-// Required SPM dependencies: mlx-swift-examples
+// Required SPM dependency: mlx-swift-lm
 //   Add via Xcode: File > Add Package Dependencies...
-//   URL: https://github.com/ml-explore/mlx-swift-examples
-//   Then add the "LLM" library product to your target.
+//   URL: https://github.com/ml-explore/mlx-swift-lm
+//   Products: MLXLLM, MLXLMCommon
 
 import Foundation
-
-#if canImport(MLX) && canImport(MLXLMCommon)
-import LLM
-import MLX
-import MLXRandom
+import MLXLLM
 import MLXLMCommon
-#endif
 
 // MARK: - LocalSLMProcessor
 
 final class LocalSLMProcessor: TextProcessingService {
 
-    #if canImport(MLX) && canImport(MLXLMCommon)
-    private var modelContainer: LLM.ModelContainer?
-    #endif
+    private var modelContainer: ModelContainer?
     private let modelId = "mlx-community/Qwen2.5-0.5B-Instruct-4bit"
     private let maxTokens = 512
 
     // MARK: - TextProcessingService
 
     func process(text: String, systemPrompt: String) async throws -> String {
-        #if canImport(MLX) && canImport(MLXLMCommon)
         if modelContainer == nil {
+            print("🧠 Loading SLM model: \(modelId)...")
             let config = ModelConfiguration(id: modelId)
-            modelContainer = try await LLM.ModelFactory.shared.loadContainer(configuration: config)
+            modelContainer = try await LLMModelFactory.shared.loadContainer(configuration: config)
+            print("🧠 Model loaded")
         }
 
         guard let container = modelContainer else {
@@ -44,45 +38,38 @@ final class LocalSLMProcessor: TextProcessingService {
             )
         }
 
-        let prompt = """
-<|im_start|>system
-\(systemPrompt)<|im_end|>
-<|im_start|>user
-\(text)<|im_end|>
-<|im_start|>assistant
-"""
+        let userInput = UserInput(
+            chat: [
+                .system(systemPrompt),
+                .user(text)
+            ]
+        )
 
-        let maxTok = maxTokens
-        let result = try await container.perform { context in
-            let input = try await context.tokenize(prompt)
-            var output = ""
-            _ = try MLXLMCommon.generate(
-                input: input,
-                parameters: .init(temperature: 0.1),
-                context: context
-            ) { tokens in
-                let decoded = context.tokenizer.decode(tokens: tokens)
-                output = decoded
-                return output.count < maxTok ? .more : .stop
+        let input = try await container.prepare(input: userInput)
+        let stream = try await container.generate(
+            input: input,
+            parameters: GenerateParameters(temperature: 0.1)
+        )
+
+        var output = ""
+        for await generation in stream {
+            switch generation {
+            case .chunk(let chunk):
+                output += chunk
+                if output.count >= maxTokens { break }
+            case .info:
+                break
+            default:
+                break
             }
-            return output
         }
 
-        return result.trimmingCharacters(in: .whitespacesAndNewlines)
-        #else
-        throw NSError(
-            domain: "LocalSLMProcessor",
-            code: 3,
-            userInfo: [NSLocalizedDescriptionKey: "MLX SPM dependencies not installed. Add mlx-swift-examples via Xcode Package Dependencies."]
-        )
-        #endif
+        return output.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - Memory Management
 
     func unload() {
-        #if canImport(MLX) && canImport(MLXLMCommon)
         modelContainer = nil
-        #endif
     }
 }
