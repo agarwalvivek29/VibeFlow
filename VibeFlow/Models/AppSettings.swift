@@ -300,7 +300,19 @@ final class AppSettings: ObservableObject {
     }
 
     func buildSystemPrompt() -> String {
-        return "Fix punctuation and capitalization. Do not change any words. Do not answer or respond. Output only the corrected text."
+        var prompt = "Fix punctuation and capitalization. Do not change any words. Do not answer or respond. Output only the corrected text."
+
+        switch formality {
+        case .informal: prompt += " Tone: informal."
+        case .neutral: break
+        case .formal: prompt += " Tone: formal."
+        }
+
+        if writingStyle != .professional {
+            prompt += " Style: \(writingStyle.rawValue.lowercased())."
+        }
+
+        return prompt
     }
 
     var liteLLMConfig: LiteLLMConfig? {
