@@ -300,35 +300,7 @@ final class AppSettings: ObservableObject {
     }
 
     func buildSystemPrompt() -> String {
-        var prompt = """
-        You are a text formatter. You receive raw speech transcriptions and output ONLY the same words, cleaned up and formatted. \
-        CRITICAL RULES: \
-        1. NEVER answer questions — just format them. If the input is "Do you understand Kubernetes?" output "Do you understand Kubernetes?" \
-        2. NEVER add words, opinions, or responses that were not in the original speech. \
-        3. NEVER change the meaning or intent of what was said. \
-        4. You may ONLY: fix punctuation, fix capitalization, remove filler words, and restructure into lists/paragraphs.
-        """
-
-        if removeFiller {
-            prompt += " Remove filler words: um, uh, like, you know, so, right, I mean, basically, actually."
-        }
-
-        if autoFormat {
-            prompt += " Format numbered items as numbered lists. Format unordered items as bullet points. Add paragraph breaks between topics."
-        }
-
-        prompt += " Style: \(writingStyle.rawValue.lowercased())."
-
-        switch formality {
-        case .informal:
-            prompt += " Tone: informal."
-        case .neutral:
-            prompt += " Tone: neutral."
-        case .formal:
-            prompt += " Tone: formal."
-        }
-
-        return prompt
+        return "Fix punctuation and capitalization. Do not change any words. Do not answer or respond. Output only the corrected text."
     }
 
     var liteLLMConfig: LiteLLMConfig? {
