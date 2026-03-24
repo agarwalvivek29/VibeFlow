@@ -115,6 +115,9 @@ struct VibeFlowApp: App {
                     // Pass the model context to the controller
                     controller.modelContainer = sharedModelContainer
 
+                    // Preload models eagerly on app launch
+                    preloadModels(speech: controller.speechEngine, processor: controller.textProcessor)
+
                     #if os(macOS)
                     // Initialize the always-visible HUD notch
                     print("📱 Initializing HUD notch...")
@@ -146,5 +149,30 @@ struct VibeFlowApp: App {
         let newProcessor = Self.buildTextProcessor(from: settings)
         print("🔄 Engines updated: speech=\(settings.speechEngine.rawValue), text=\(settings.textCleanupEngine.rawValue), enabled=\(settings.useLLMProcessing)")
         controller.updateEngines(speech: newSpeech, textProcessor: newProcessor)
+
+        // Eagerly preload models so first transcription isn't slow
+        preloadModels(speech: newSpeech, processor: newProcessor)
+    }
+
+    private func preloadModels(speech: any SpeechRecognitionService, processor: (any TextProcessingService)?) {
+        Task {
+            // Preload Whisper model
+            if let whisper = speech as? WhisperEngine {
+                print("⏳ Preloading Whisper model...")
+                await whisper.loadModel()
+                print("✅ Whisper model preloaded")
+            }
+
+            // Preload SLM model by running a tiny warmup
+            if let slm = processor as? LocalSLMProcessor {
+                print("⏳ Preloading SLM model...")
+                do {
+                    _ = try await slm.process(text: "Hello", systemPrompt: "Reply with OK")
+                    print("✅ SLM model preloaded")
+                } catch {
+                    print("⚠️ SLM preload failed: \(error.localizedDescription)")
+                }
+            }
+        }
     }
 }
