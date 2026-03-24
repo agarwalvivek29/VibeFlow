@@ -278,7 +278,8 @@ private struct StatBox: View {
     DashboardView(selectedNavigation: .constant(.dashboard))
         .environmentObject(AppSettings())
         .environmentObject(ConversationController(
-            llm: LiteLLMClient(config: .init(baseURL: URL(string: "http://127.0.0.1:4000")!, apiKey: nil)),
+            speechEngine: AppleSpeechEngine(),
+            textProcessor: nil,
             settings: AppSettings()
         ))
         .modelContainer(for: TranscriptionEntry.self, inMemory: true)

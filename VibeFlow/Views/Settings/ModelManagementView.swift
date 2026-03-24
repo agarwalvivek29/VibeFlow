@@ -16,10 +16,10 @@ struct ModelManagementView: View {
         VStack(alignment: .leading, spacing: 24) {
             SectionHeader(title: "Speech Recognition (Whisper)")
 
-            ForEach(ModelDownloadManager.WhisperModelSize.allCases, id: \.self) { size in
+            ForEach(AppSettings.WhisperModelSize.allCases, id: \.self) { size in
                 ModelRow(
-                    name: "Whisper \(size.rawValue.capitalized)",
-                    detail: size.displayName,
+                    name: "Whisper \(size.displayName)",
+                    detail: "\(size.expectedSizeMB) MB - \(size.fileName)",
                     state: downloadManager.whisperStates[size] ?? .notDownloaded,
                     brandColor: brandColor,
                     onDownload: {

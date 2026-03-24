@@ -182,13 +182,7 @@ struct DictionaryView: View {
     private func addTerm() {
         let trimmed = newTermText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        let entry = DictionaryEntry(
-            id: UUID(),
-            term: trimmed,
-            category: nil,
-            isEnabled: true,
-            createdAt: Date()
-        )
+        let entry = DictionaryEntry(term: trimmed)
         modelContext.insert(entry)
         newTermText = ""
         isAddingTerm = false

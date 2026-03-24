@@ -10,6 +10,10 @@ final class RemoteLLMProcessor: TextProcessingService {
     }
 
     func process(text: String, systemPrompt: String) async throws -> String {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw NSError(domain: "RemoteLLMProcessor", code: 1, userInfo: [NSLocalizedDescriptionKey: "Empty text input"])
+        }
+
         let messages: [[String: String]] = [
             ["role": "system", "content": systemPrompt],
             ["role": "user", "content": text]
@@ -19,6 +23,11 @@ final class RemoteLLMProcessor: TextProcessingService {
         for try await token in stream {
             result.append(token)
         }
+
+        guard !result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw NSError(domain: "RemoteLLMProcessor", code: 2, userInfo: [NSLocalizedDescriptionKey: "LLM returned empty result"])
+        }
+
         return result
     }
 }

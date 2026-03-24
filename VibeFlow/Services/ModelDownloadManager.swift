@@ -7,50 +7,18 @@
 
 import Foundation
 import SwiftUI
+import Combine
 
 @MainActor
 final class ModelDownloadManager: ObservableObject {
 
     // MARK: - Types
 
+    typealias WhisperModelSize = AppSettings.WhisperModelSize
+
     enum ModelType: Equatable {
         case whisper(WhisperModelSize)
         case slm
-    }
-
-    enum WhisperModelSize: String, CaseIterable, Codable {
-        case tiny = "tiny"
-        case base = "base"
-        case small = "small"
-
-        var displayName: String {
-            switch self {
-            case .tiny:  return "Tiny (~39 MB)"
-            case .base:  return "Base (~74 MB)"
-            case .small: return "Small (~244 MB)"
-            }
-        }
-
-        var fileName: String {
-            switch self {
-            case .tiny:  return "ggml-tiny.bin"
-            case .base:  return "ggml-base.bin"
-            case .small: return "ggml-small.bin"
-            }
-        }
-
-        var downloadURL: URL {
-            let base = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/"
-            return URL(string: base + fileName)!
-        }
-
-        var expectedSizeMB: Int {
-            switch self {
-            case .tiny:  return 39
-            case .base:  return 74
-            case .small: return 244
-            }
-        }
     }
 
     enum DownloadState: Equatable {

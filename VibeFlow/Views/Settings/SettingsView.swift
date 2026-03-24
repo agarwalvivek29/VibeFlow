@@ -45,17 +45,17 @@ struct SettingsView: View {
                 SettingsSection(title: "Speech Engine") {
                     VStack(alignment: .leading, spacing: 12) {
                         Picker("Speech Engine", selection: $settings.speechEngine) {
-                            Text("Apple Speech").tag(SpeechEngine.apple)
-                            Text("Whisper").tag(SpeechEngine.whisper)
+                            Text("Apple Speech").tag(AppSettings.SpeechEngine.apple)
+                            Text("Whisper").tag(AppSettings.SpeechEngine.whisper)
                         }
                         .pickerStyle(.segmented)
                         .labelsHidden()
 
                         if settings.speechEngine == .whisper {
                             Picker("Model Size", selection: $settings.whisperModelSize) {
-                                Text("Tiny").tag(WhisperModelSize.tiny)
-                                Text("Base").tag(WhisperModelSize.base)
-                                Text("Small").tag(WhisperModelSize.small)
+                                Text("Tiny").tag(AppSettings.WhisperModelSize.tiny)
+                                Text("Base").tag(AppSettings.WhisperModelSize.base)
+                                Text("Small").tag(AppSettings.WhisperModelSize.small)
                             }
                             .pickerStyle(.segmented)
                             .labelsHidden()
@@ -76,8 +76,8 @@ struct SettingsView: View {
                             Divider()
 
                             Picker("Cleanup Engine", selection: $settings.textCleanupEngine) {
-                                Text("Local SLM").tag(TextCleanupEngine.localSLM)
-                                Text("Remote LLM").tag(TextCleanupEngine.remoteLLM)
+                                Text("Local SLM").tag(AppSettings.TextCleanupEngine.localSLM)
+                                Text("Remote LLM").tag(AppSettings.TextCleanupEngine.remoteLLM)
                             }
                             .pickerStyle(.segmented)
                             .labelsHidden()

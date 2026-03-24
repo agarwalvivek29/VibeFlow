@@ -199,7 +199,7 @@ final class ConversationController: ObservableObject {
                     predicate: #Predicate<DictionaryEntry> { $0.isEnabled }
                 )
                 if let entries = try? context.fetch(descriptor) {
-                    terms = entries.map(\.word)
+                    terms = entries.map(\.term)
                 }
             }
 
@@ -319,7 +319,7 @@ final class ConversationController: ObservableObject {
         HUDWindowController.shared.updatePosition()
         #endif
 
-        guard !transcript.isEmpty else { return }
+        guard !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
         let cleaned = settings.removeFiller ? FillerRemover.removeFiller(from: transcript) : transcript
 

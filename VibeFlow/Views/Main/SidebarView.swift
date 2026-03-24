@@ -86,7 +86,8 @@ struct SidebarView: View {
 #Preview {
     SidebarView(selection: .constant(.dashboard))
         .environmentObject(ConversationController(
-            llm: LiteLLMClient(config: .init(baseURL: URL(string: "http://127.0.0.1:4000")!, apiKey: nil)),
+            speechEngine: AppleSpeechEngine(),
+            textProcessor: nil,
             settings: AppSettings()
         ))
         .frame(width: 260, height: 600)

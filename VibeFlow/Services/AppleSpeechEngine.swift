@@ -21,6 +21,7 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
     // Continuation for async stop - waits for isFinal
     private var stopContinuation: CheckedContinuation<String, Never>?
     private var isWaitingForFinal = false
+    private var hasResumedContinuation = false
 
     func requestPermissions() async throws {
         // Permissions are now handled by PermissionsHelper
@@ -194,7 +195,8 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
                 if result.isFinal {
                     print("🗣️ Final transcript: '\(text)'")
                     // Resume continuation if we're waiting for final
-                    if self.isWaitingForFinal {
+                    if self.isWaitingForFinal, !self.hasResumedContinuation {
+                        self.hasResumedContinuation = true
                         self.isWaitingForFinal = false
                         self.stopContinuation?.resume(returning: text)
                         self.stopContinuation = nil
@@ -206,7 +208,8 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
             if let error = error {
                 print("❌ Recognition error: \(error)")
                 // Resume continuation with whatever we have
-                if self.isWaitingForFinal {
+                if self.isWaitingForFinal, !self.hasResumedContinuation {
+                    self.hasResumedContinuation = true
                     self.isWaitingForFinal = false
                     self.stopContinuation?.resume(returning: self.transcript)
                     self.stopContinuation = nil
@@ -232,6 +235,7 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
         }
 
         return await withCheckedContinuation { continuation in
+            self.hasResumedContinuation = false
             self.stopContinuation = continuation
             self.isWaitingForFinal = true
 
@@ -247,8 +251,9 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
 
             // 3. Set a timeout in case isFinal never comes
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-                guard let self = self, self.isWaitingForFinal else { return }
+                guard let self = self, self.isWaitingForFinal, !self.hasResumedContinuation else { return }
                 print("⚠️ Timeout waiting for final transcript, using current")
+                self.hasResumedContinuation = true
                 self.isWaitingForFinal = false
                 self.stopContinuation?.resume(returning: self.transcript)
                 self.stopContinuation = nil

@@ -11,21 +11,14 @@
 import Foundation
 import AVFoundation
 import Accelerate
+import Combine
 #if os(macOS)
 import CoreAudio
 #endif
+
+#if canImport(whisper)
 import whisper
-
-// MARK: - Protocol
-
-@MainActor
-protocol SpeechRecognitionService: AnyObject {
-    var transcript: String { get }
-    var level: Float { get }
-    func startRecording(contextualTerms: [String]) throws
-    func stopAndWaitForFinal() async -> String
-    func stop()
-}
+#endif
 
 // MARK: - WhisperEngine
 
@@ -42,6 +35,8 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
     private let audioEngine = AVAudioEngine()
     private var audioBuffer: [Float] = []
     private var deviceSampleRate: Double = 16000
+    /// Max buffer size: 5 minutes at 48 kHz
+    private let maxBufferSize = 14_400_000
 
     // MARK: Whisper
 
@@ -59,16 +54,22 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
     init(modelPath: URL) {
         self.modelPath = modelPath
         super.init()
+        #if canImport(whisper)
         whisperContext = whisper_init_from_file(modelPath.path)
         if whisperContext == nil {
             print("Failed to load Whisper model at \(modelPath.path)")
         }
+        #else
+        print("whisper.cpp SPM dependency not installed — WhisperEngine unavailable")
+        #endif
     }
 
     deinit {
+        #if canImport(whisper)
         if let ctx = whisperContext {
             whisper_free(ctx)
         }
+        #endif
     }
 
     // MARK: - SpeechRecognitionService
@@ -184,6 +185,10 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
             let frames = Int(buffer.frameLength)
             let samples = Array(UnsafeBufferPointer(start: channelData[0], count: frames))
             self.audioBuffer.append(contentsOf: samples)
+            // Prevent unbounded memory growth — drop oldest samples
+            if self.audioBuffer.count > self.maxBufferSize {
+                self.audioBuffer.removeFirst(self.audioBuffer.count - self.maxBufferSize)
+            }
             self.updateLevel(from: buffer)
         }
 
@@ -203,19 +208,18 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
         }
 
         let samples = resampleTo16kHz(audioBuffer, from: deviceSampleRate)
-        audioBuffer = []
+        audioBuffer.removeAll(keepingCapacity: false)
 
+        #if canImport(whisper)
         let terms = contextualTerms
         let result: String = await Task.detached { [samples] in
             var params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY)
             params.print_progress = false
             params.print_timestamps = false
 
-            // Set language to English
             let langPtr = strdup("en")
             params.language = UnsafePointer(langPtr)
 
-            // Set initial prompt with contextual terms for better accuracy
             let promptText = terms.joined(separator: ", ")
             let promptPtr = strdup(promptText)
             params.initial_prompt = UnsafePointer(promptPtr)
@@ -225,15 +229,11 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
                 whisper_full(ctx, params, bufferPtr.baseAddress, sampleCount)
             }
 
-            // Free allocated strings
             free(langPtr)
             free(promptPtr)
 
-            guard status == 0 else {
-                return ""
-            }
+            guard status == 0 else { return "" }
 
-            // Extract segments
             let segmentCount = whisper_full_n_segments(ctx)
             var fullText = ""
             for i in 0..<segmentCount {
@@ -243,6 +243,10 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
             }
             return fullText.trimmingCharacters(in: .whitespacesAndNewlines)
         }.value
+        #else
+        let result = ""
+        print("whisper.cpp SPM dependency not installed — transcription unavailable")
+        #endif
 
         transcript = result
         return result

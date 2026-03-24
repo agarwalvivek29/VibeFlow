@@ -9,28 +9,28 @@
 //   Then add the "LLM" library product to your target.
 
 import Foundation
+
+#if canImport(MLX) && canImport(MLXLMCommon)
 import LLM
 import MLX
 import MLXRandom
 import MLXLMCommon
-
-// MARK: - Protocol
-
-protocol TextProcessingService {
-    func process(text: String, systemPrompt: String) async throws -> String
-}
+#endif
 
 // MARK: - LocalSLMProcessor
 
 final class LocalSLMProcessor: TextProcessingService {
 
-    private var modelContainer: ModelContainer?
+    #if canImport(MLX) && canImport(MLXLMCommon)
+    private var modelContainer: LLM.ModelContainer?
+    #endif
     private let modelId = "mlx-community/Qwen2.5-0.5B-Instruct-4bit"
     private let maxTokens = 512
 
     // MARK: - TextProcessingService
 
     func process(text: String, systemPrompt: String) async throws -> String {
+        #if canImport(MLX) && canImport(MLXLMCommon)
         if modelContainer == nil {
             let config = ModelConfiguration(id: modelId)
             modelContainer = try await LLM.ModelFactory.shared.loadContainer(configuration: config)
@@ -45,12 +45,12 @@ final class LocalSLMProcessor: TextProcessingService {
         }
 
         let prompt = """
-        <|im_start|>system
-        \(systemPrompt)<|im_end|>
-        <|im_start|>user
-        \(text)<|im_end|>
-        <|im_start|>assistant
-        """
+<|im_start|>system
+\(systemPrompt)<|im_end|>
+<|im_start|>user
+\(text)<|im_end|>
+<|im_start|>assistant
+"""
 
         let maxTok = maxTokens
         let result = try await container.perform { context in
@@ -69,12 +69,20 @@ final class LocalSLMProcessor: TextProcessingService {
         }
 
         return result.trimmingCharacters(in: .whitespacesAndNewlines)
+        #else
+        throw NSError(
+            domain: "LocalSLMProcessor",
+            code: 3,
+            userInfo: [NSLocalizedDescriptionKey: "MLX SPM dependencies not installed. Add mlx-swift-examples via Xcode Package Dependencies."]
+        )
+        #endif
     }
 
     // MARK: - Memory Management
 
-    /// Unload the model from memory when not needed.
     func unload() {
+        #if canImport(MLX) && canImport(MLXLMCommon)
         modelContainer = nil
+        #endif
     }
 }

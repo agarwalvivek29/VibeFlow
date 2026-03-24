@@ -133,6 +133,35 @@ final class AppSettings: ObservableObject {
         case tiny = "Tiny (~39MB)"
         case base = "Base (~74MB)"
         case small = "Small (~244MB)"
+
+        var displayName: String {
+            switch self {
+            case .tiny:  return "Tiny (~39 MB)"
+            case .base:  return "Base (~74 MB)"
+            case .small: return "Small (~244 MB)"
+            }
+        }
+
+        var fileName: String {
+            switch self {
+            case .tiny:  return "ggml-tiny.bin"
+            case .base:  return "ggml-base.bin"
+            case .small: return "ggml-small.bin"
+            }
+        }
+
+        var downloadURL: URL {
+            let base = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/"
+            return URL(string: base + fileName)!
+        }
+
+        var expectedSizeMB: Int {
+            switch self {
+            case .tiny:  return 39
+            case .base:  return 74
+            case .small: return 244
+            }
+        }
     }
 
     private static let defaults = UserDefaults.standard

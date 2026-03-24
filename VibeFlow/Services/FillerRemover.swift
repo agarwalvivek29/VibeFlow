@@ -12,7 +12,7 @@ struct FillerRemover {
             #"\b[Bb]asically\b[,]?\s*"#,
             #"\b[Aa]ctually\b[,]?\s*"#,
             #"\b[Ll]iterally\b[,]?\s*"#,
-            #"\b[Ll]ike\b[,]\s*"#,
+            #"\b[Ll]ike\b[,]?\s*"#,
             #"\b[Uu]mm?\b[,]?\s*"#,
             #"\b[Uu]hh?\b[,]?\s*"#,
         ]
