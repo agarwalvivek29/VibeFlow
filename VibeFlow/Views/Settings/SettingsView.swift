@@ -41,44 +41,108 @@ struct SettingsView: View {
                     }
                 }
 
-                // AI Processing
-                SettingsSection(title: "AI Processing") {
+                // Speech Engine
+                SettingsSection(title: "Speech Engine") {
                     VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            Text("Use AI Text Enhancement")
-                                .font(.system(size: 13))
-                                .foregroundColor(.primary)
-
-                            Spacer()
-
-                            Toggle("", isOn: $settings.useLLMProcessing)
-                                .toggleStyle(.switch)
-                                .labelsHidden()
+                        Picker("Speech Engine", selection: $settings.speechEngine) {
+                            Text("Apple Speech").tag(SpeechEngine.apple)
+                            Text("Whisper").tag(SpeechEngine.whisper)
                         }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+
+                        if settings.speechEngine == .whisper {
+                            Picker("Model Size", selection: $settings.whisperModelSize) {
+                                Text("Tiny").tag(WhisperModelSize.tiny)
+                                Text("Base").tag(WhisperModelSize.base)
+                                Text("Small").tag(WhisperModelSize.small)
+                            }
+                            .pickerStyle(.segmented)
+                            .labelsHidden()
+                        }
+
+                        Text("Apple Speech uses on-device recognition. Whisper runs locally for potentially better accuracy.")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                // Text Cleanup
+                SettingsSection(title: "Text Cleanup") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        ToggleRow(title: "Enable AI Text Enhancement", isOn: $settings.useLLMProcessing)
 
                         if settings.useLLMProcessing {
                             Divider()
 
-                            LabeledField(label: "Base URL", placeholder: "http://127.0.0.1:4000", text: $settings.liteLLMBaseURL)
-                            LabeledField(label: "Model", placeholder: "gpt-4o-mini", text: $settings.llmModel)
+                            Picker("Cleanup Engine", selection: $settings.textCleanupEngine) {
+                                Text("Local SLM").tag(TextCleanupEngine.localSLM)
+                                Text("Remote LLM").tag(TextCleanupEngine.remoteLLM)
+                            }
+                            .pickerStyle(.segmented)
+                            .labelsHidden()
+
+                            if settings.textCleanupEngine == .remoteLLM {
+                                LabeledField(label: "Base URL", placeholder: "http://127.0.0.1:4000", text: $settings.liteLLMBaseURL)
+                                LabeledField(label: "Model", placeholder: "gpt-4o-mini", text: $settings.llmModel)
+                            } else {
+                                Text("Uses Qwen 2.5 (0.5B) running locally on your Mac. No internet required.")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.secondary)
+                            }
+
+                            Divider()
+
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Writing Style")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.secondary)
+
+                                ForEach(AppSettings.WritingStyle.allCases, id: \.self) { style in
+                                    RadioRow(
+                                        title: style.rawValue,
+                                        subtitle: style.description,
+                                        isSelected: settings.writingStyle == style
+                                    ) {
+                                        settings.writingStyle = style
+                                    }
+                                }
+                            }
+
+                            Divider()
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Formality")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.secondary)
+
+                                Picker("Formality", selection: $settings.formality) {
+                                    ForEach(AppSettings.Formality.allCases, id: \.self) { level in
+                                        Text(level.rawValue).tag(level)
+                                    }
+                                }
+                                .pickerStyle(.segmented)
+                                .labelsHidden()
+                            }
+
+                            Divider()
+
+                            ToggleRow(title: "Remove filler words", isOn: $settings.removeFiller)
+                            ToggleRow(title: "Auto-format punctuation & capitalization", isOn: $settings.autoFormat)
                         }
                     }
                 }
 
-                // Writing Style
-                if settings.useLLMProcessing {
-                    SettingsSection(title: "Writing Style") {
-                        VStack(alignment: .leading, spacing: 8) {
-                            ForEach(AppSettings.WritingStyle.allCases, id: \.self) { style in
-                                RadioRow(
-                                    title: style.rawValue,
-                                    subtitle: style.description,
-                                    isSelected: settings.writingStyle == style
-                                ) {
-                                    settings.writingStyle = style
-                                }
-                            }
-                        }
+                // Custom Dictionary
+                SettingsSection(title: "Custom Dictionary") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Add technical terms, names, and jargon to improve recognition accuracy.")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+
+                        Text("Manage your dictionary from the Dictionary tab in the sidebar.")
+                            .font(.system(size: 12))
+                            .foregroundColor(Color(red: 0.357, green: 0.310, blue: 0.914))
                     }
                 }
 
@@ -133,6 +197,25 @@ private struct SettingsSection<Content: View>: View {
                 .foregroundColor(.secondary)
 
             content
+        }
+    }
+}
+
+// MARK: - Toggle row
+
+private struct ToggleRow: View {
+    let title: String
+    @Binding var isOn: Bool
+
+    var body: some View {
+        HStack {
+            Text(title)
+                .font(.system(size: 13))
+                .foregroundColor(.primary)
+            Spacer()
+            Toggle("", isOn: $isOn)
+                .toggleStyle(.switch)
+                .labelsHidden()
         }
     }
 }
