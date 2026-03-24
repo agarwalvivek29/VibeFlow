@@ -7,7 +7,7 @@ import Accelerate
 import CoreAudio
 #endif
 
-final class SpeechManager: NSObject, ObservableObject {
+final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionService {
     @Published var transcript: String = ""
     @Published var level: Float = 0.0 // 0...1 for waveform UI
 
@@ -33,8 +33,8 @@ final class SpeechManager: NSObject, ObservableObject {
         // No-op on macOS
     }
 
-    func startRecording() throws {
-        print("🎙️ SpeechManager.startRecording() called")
+    func startRecording(contextualTerms: [String] = []) throws {
+        print("🎙️ AppleSpeechEngine.startRecording() called")
 
         // Ensure clean state with proper cleanup
         if audioEngine.isRunning {
@@ -56,7 +56,7 @@ final class SpeechManager: NSObject, ObservableObject {
 
         guard let recognizer = speechRecognizer, recognizer.isAvailable else {
             print("❌ Speech recognizer not available!")
-            throw NSError(domain: "SpeechManager", code: 1, userInfo: [NSLocalizedDescriptionKey: "Speech recognizer not available"])
+            throw NSError(domain: "AppleSpeechEngine", code: 1, userInfo: [NSLocalizedDescriptionKey: "Speech recognizer not available"])
         }
 
         #if os(macOS)
@@ -80,7 +80,7 @@ final class SpeechManager: NSObject, ObservableObject {
 
         guard status == noErr, defaultDeviceID != 0 else {
             print("❌ Failed to get default input device")
-            throw NSError(domain: "SpeechManager", code: 2, userInfo: [NSLocalizedDescriptionKey: "No input device available"])
+            throw NSError(domain: "AppleSpeechEngine", code: 2, userInfo: [NSLocalizedDescriptionKey: "No input device available"])
         }
 
         // Get device name for logging
@@ -163,6 +163,7 @@ final class SpeechManager: NSObject, ObservableObject {
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
+        request.contextualStrings = contextualTerms
         self.recognitionRequest = request
         print("✅ Recognition request created")
 
@@ -221,7 +222,7 @@ final class SpeechManager: NSObject, ObservableObject {
     /// Stops recording and waits for the final transcription result
     /// This ensures all buffered audio is processed and no words are lost
     func stopAndWaitForFinal() async -> String {
-        print("🛑 SpeechManager.stopAndWaitForFinal() called")
+        print("🛑 AppleSpeechEngine.stopAndWaitForFinal() called")
         print("🛑 Current transcript before stopping: '\(transcript)'")
 
         // If not recording, return current transcript
@@ -259,7 +260,7 @@ final class SpeechManager: NSObject, ObservableObject {
     /// Immediately stops recording without waiting for final result
     /// Use this for cleanup or when you don't need the transcript
     func stop() {
-        print("🛑 SpeechManager.stop() called (immediate)")
+        print("🛑 AppleSpeechEngine.stop() called (immediate)")
 
         isWaitingForFinal = false
         stopContinuation = nil
@@ -316,5 +317,3 @@ final class SpeechManager: NSObject, ObservableObject {
         }
     }
 }
-
-// NOTE: You may need to add Accelerate to your target for vDSP_meamgv. If not available, replace with simple averaging.

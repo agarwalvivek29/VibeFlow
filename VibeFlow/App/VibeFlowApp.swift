@@ -17,7 +17,7 @@ struct VibeFlowApp: App {
     @StateObject private var controller: ConversationController
 
     var sharedModelContainer: ModelContainer = {
-        let schema = Schema([TranscriptionEntry.self])
+        let schema = Schema([TranscriptionEntry.self, DictionaryEntry.self])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
         do {
             return try ModelContainer(for: schema, configurations: [modelConfiguration])
@@ -41,11 +41,15 @@ struct VibeFlowApp: App {
         print("🚀 VibeFlow initializing...")
         let settingsInstance = AppSettings()
         print("🚀 Settings loaded")
+        let speechEngine = AppleSpeechEngine()
+        print("🚀 Speech engine created")
         let config = settingsInstance.liteLLMConfig ?? LiteLLMConfig(baseURL: URL(string: "http://127.0.0.1:4000")!, apiKey: nil)
         print("🚀 LiteLLM config ready")
-        let llm = LiteLLMClient(config: config)
+        let llmClient = LiteLLMClient(config: config)
         print("🚀 LiteLLM client created")
-        let controllerInstance = ConversationController(llm: llm, settings: settingsInstance)
+        let textProcessor = RemoteLLMProcessor(client: llmClient, model: settingsInstance.llmModel)
+        print("🚀 Text processor created")
+        let controllerInstance = ConversationController(speechEngine: speechEngine, textProcessor: textProcessor, settings: settingsInstance)
         print("🚀 ConversationController created")
         _settings = StateObject(wrappedValue: settingsInstance)
         _controller = StateObject(wrappedValue: controllerInstance)
@@ -118,8 +122,9 @@ struct VibeFlowApp: App {
     }
 
     private func updateLLMClient() {
-        guard settings.liteLLMConfig != nil else { return }
-        // Note: In a production app, you'd want to handle updating the client more gracefully
-        // For now, this requires an app restart to take effect
+        guard let config = settings.liteLLMConfig else { return }
+        let newClient = LiteLLMClient(config: config)
+        let newProcessor = RemoteLLMProcessor(client: newClient, model: settings.llmModel)
+        controller.updateEngines(speech: controller.speechEngine, textProcessor: newProcessor)
     }
 }

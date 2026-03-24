@@ -11,8 +11,8 @@ final class ConversationController: ObservableObject {
     @Published var isRecording: Bool = false
     @Published var level: Float = 0
 
-    let speech = SpeechManager()
-    let llm: LiteLLMClient
+    private(set) var speechEngine: any SpeechRecognitionService
+    private(set) var textProcessor: (any TextProcessingService)?
     let settings: AppSettings
     var modelContainer: ModelContainer?
 
@@ -22,12 +22,18 @@ final class ConversationController: ObservableObject {
     private var localKeyUpMonitor: Any?
     private var previousModifierFlags: NSEvent.ModifierFlags = []
 
-    init(llm: LiteLLMClient, settings: AppSettings) {
-        self.llm = llm
+    init(speechEngine: any SpeechRecognitionService, textProcessor: (any TextProcessingService)?, settings: AppSettings) {
+        self.speechEngine = speechEngine
+        self.textProcessor = textProcessor
         self.settings = settings
         // Don't request permissions during init - it blocks UI
         // Permissions are now handled by PermissionsHelper in ContentView
         // Key binding changes take effect immediately (read dynamically in event handlers)
+    }
+
+    func updateEngines(speech: any SpeechRecognitionService, textProcessor: (any TextProcessingService)?) {
+        self.speechEngine = speech
+        self.textProcessor = textProcessor
     }
 
     func installGlobalMonitors() {
@@ -185,7 +191,19 @@ final class ConversationController: ObservableObject {
         guard !isRecording else { return }
         isRecording = true
         do {
-            try speech.startRecording()
+            // Fetch dictionary terms for contextual recognition
+            var terms: [String] = []
+            if let container = modelContainer {
+                let context = ModelContext(container)
+                let descriptor = FetchDescriptor<DictionaryEntry>(
+                    predicate: #Predicate<DictionaryEntry> { $0.isEnabled }
+                )
+                if let entries = try? context.fetch(descriptor) {
+                    terms = entries.map(\.word)
+                }
+            }
+
+            try speechEngine.startRecording(contextualTerms: terms)
             bindLevel()
             #if os(macOS)
             HUDWindowController.shared.show(controller: self, settings: settings, atBottom: true)
@@ -197,31 +215,24 @@ final class ConversationController: ObservableObject {
     }
 
     private func bindLevel() {
-        // Simple polling since SpeechManager publishes level
+        // Simple polling since speech engine publishes level
         Task { [weak self] in
             guard let self = self else { return }
             while self.isRecording {
-                await MainActor.run { self.level = self.speech.level }
+                await MainActor.run { self.level = self.speechEngine.level }
                 try? await Task.sleep(nanoseconds: 30_000_000)
             }
         }
     }
 
     private func stopRecording() {
-        speech.stop()
+        speechEngine.stop()
         isRecording = false
         #if os(macOS)
         // Don't hide - the HUD stays visible in idle state
         // Just update position in case we need to re-center
         HUDWindowController.shared.updatePosition()
         #endif
-    }
-
-    private func messages(from transcript: String) -> [[String: String]] {
-        return [
-            ["role": "system", "content": settings.buildSystemPrompt()],
-            ["role": "user", "content": transcript]
-        ]
     }
 
     private func copyToClipboard(_ text: String) {
@@ -301,7 +312,7 @@ final class ConversationController: ObservableObject {
     }
 
     func stopAndProcess() async {
-        let transcript = await speech.stopAndWaitForFinal()
+        let transcript = await speechEngine.stopAndWaitForFinal()
 
         isRecording = false
         #if os(macOS)
@@ -310,24 +321,23 @@ final class ConversationController: ObservableObject {
 
         guard !transcript.isEmpty else { return }
 
+        let cleaned = settings.removeFiller ? FillerRemover.removeFiller(from: transcript) : transcript
+
         var processedText = ""
         var usedLLM = false
 
-        if settings.useLLMProcessing {
+        if settings.useLLMProcessing, let processor = textProcessor {
             do {
-                let stream = try await llm.streamChatCompletion(model: settings.llmModel, messages: messages(from: transcript))
-                for try await token in stream {
-                    processedText.append(token)
-                }
+                processedText = try await processor.process(text: cleaned, systemPrompt: settings.buildSystemPrompt())
                 pasteToFrontmostApp(processedText)
                 usedLLM = true
             } catch {
-                pasteToFrontmostApp(transcript)
-                processedText = transcript
+                pasteToFrontmostApp(cleaned)
+                processedText = cleaned
             }
         } else {
-            pasteToFrontmostApp(transcript)
-            processedText = transcript
+            pasteToFrontmostApp(cleaned)
+            processedText = cleaned
         }
 
         saveToHistory(
