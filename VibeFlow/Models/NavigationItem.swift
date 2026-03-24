@@ -10,6 +10,7 @@ import Foundation
 enum NavigationItem: String, CaseIterable, Identifiable {
     case dashboard
     case history
+    case dictionary
     case settings
 
     var id: String { rawValue }
@@ -18,6 +19,7 @@ enum NavigationItem: String, CaseIterable, Identifiable {
         switch self {
         case .dashboard: return "square.grid.2x2.fill"
         case .history: return "clock.fill"
+        case .dictionary: return "character.book.closed.fill"
         case .settings: return "gearshape.fill"
         }
     }

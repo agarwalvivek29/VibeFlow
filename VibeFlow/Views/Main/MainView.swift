@@ -46,6 +46,8 @@ struct MainView: View {
             DashboardView(selectedNavigation: $selectedNavigation)
         case .history:
             HistoryView()
+        case .dictionary:
+            DictionaryView()
         case .settings:
             SettingsView(settings: settings)
         case .none:
