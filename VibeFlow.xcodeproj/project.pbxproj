@@ -6,6 +6,17 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		01F874CA2F7339E1007A70F8 /* SpeakerKit in Frameworks */ = {isa = PBXBuildFile; productRef = 01F874C92F7339E1007A70F8 /* SpeakerKit */; };
+		01F874CC2F7339E1007A70F8 /* TTSKit in Frameworks */ = {isa = PBXBuildFile; productRef = 01F874CB2F7339E1007A70F8 /* TTSKit */; };
+		01F874CE2F7339E1007A70F8 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = 01F874CD2F7339E1007A70F8 /* WhisperKit */; };
+		01F874D02F7339E1007A70F8 /* whisperkit-cli in Frameworks */ = {isa = PBXBuildFile; productRef = 01F874CF2F7339E1007A70F8 /* whisperkit-cli */; };
+		01F874D82F7343C4007A70F8 /* MLXEmbedders in Frameworks */ = {isa = PBXBuildFile; productRef = 01F874D72F7343C4007A70F8 /* MLXEmbedders */; };
+		01F874DA2F7343C4007A70F8 /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = 01F874D92F7343C4007A70F8 /* MLXLLM */; };
+		01F874DC2F7343C4007A70F8 /* MLXLMCommon in Frameworks */ = {isa = PBXBuildFile; productRef = 01F874DB2F7343C4007A70F8 /* MLXLMCommon */; };
+		01F874DE2F7343C4007A70F8 /* MLXVLM in Frameworks */ = {isa = PBXBuildFile; productRef = 01F874DD2F7343C4007A70F8 /* MLXVLM */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		01A859372F1745C000B22DE4 /* VibeFlow.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VibeFlow.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -23,6 +34,14 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				01F874DA2F7343C4007A70F8 /* MLXLLM in Frameworks */,
+				01F874CE2F7339E1007A70F8 /* WhisperKit in Frameworks */,
+				01F874D02F7339E1007A70F8 /* whisperkit-cli in Frameworks */,
+				01F874CA2F7339E1007A70F8 /* SpeakerKit in Frameworks */,
+				01F874CC2F7339E1007A70F8 /* TTSKit in Frameworks */,
+				01F874D82F7343C4007A70F8 /* MLXEmbedders in Frameworks */,
+				01F874DE2F7343C4007A70F8 /* MLXVLM in Frameworks */,
+				01F874DC2F7343C4007A70F8 /* MLXLMCommon in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -65,6 +84,14 @@
 			);
 			name = VibeFlow;
 			packageProductDependencies = (
+				01F874C92F7339E1007A70F8 /* SpeakerKit */,
+				01F874CB2F7339E1007A70F8 /* TTSKit */,
+				01F874CD2F7339E1007A70F8 /* WhisperKit */,
+				01F874CF2F7339E1007A70F8 /* whisperkit-cli */,
+				01F874D72F7343C4007A70F8 /* MLXEmbedders */,
+				01F874D92F7343C4007A70F8 /* MLXLLM */,
+				01F874DB2F7343C4007A70F8 /* MLXLMCommon */,
+				01F874DD2F7343C4007A70F8 /* MLXVLM */,
 			);
 			productName = VibeFlow;
 			productReference = 01A859372F1745C000B22DE4 /* VibeFlow.app */;
@@ -94,6 +121,10 @@
 			);
 			mainGroup = 01A8592E2F1745C000B22DE4;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				01F874C82F7339E1007A70F8 /* XCRemoteSwiftPackageReference "WhisperKit" */,
+				01F874D62F7343C4007A70F8 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 01A859382F1745C000B22DE4 /* Products */;
 			projectDirPath = "";
@@ -331,6 +362,68 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		01F874C82F7339E1007A70F8 /* XCRemoteSwiftPackageReference "WhisperKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/argmaxinc/WhisperKit.git";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
+		};
+		01F874D62F7343C4007A70F8 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/ml-explore/mlx-swift-lm";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.30.6;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		01F874C92F7339E1007A70F8 /* SpeakerKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 01F874C82F7339E1007A70F8 /* XCRemoteSwiftPackageReference "WhisperKit" */;
+			productName = SpeakerKit;
+		};
+		01F874CB2F7339E1007A70F8 /* TTSKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 01F874C82F7339E1007A70F8 /* XCRemoteSwiftPackageReference "WhisperKit" */;
+			productName = TTSKit;
+		};
+		01F874CD2F7339E1007A70F8 /* WhisperKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 01F874C82F7339E1007A70F8 /* XCRemoteSwiftPackageReference "WhisperKit" */;
+			productName = WhisperKit;
+		};
+		01F874CF2F7339E1007A70F8 /* whisperkit-cli */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 01F874C82F7339E1007A70F8 /* XCRemoteSwiftPackageReference "WhisperKit" */;
+			productName = "whisperkit-cli";
+		};
+		01F874D72F7343C4007A70F8 /* MLXEmbedders */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 01F874D62F7343C4007A70F8 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
+			productName = MLXEmbedders;
+		};
+		01F874D92F7343C4007A70F8 /* MLXLLM */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 01F874D62F7343C4007A70F8 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
+			productName = MLXLLM;
+		};
+		01F874DB2F7343C4007A70F8 /* MLXLMCommon */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 01F874D62F7343C4007A70F8 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
+			productName = MLXLMCommon;
+		};
+		01F874DD2F7343C4007A70F8 /* MLXVLM */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 01F874D62F7343C4007A70F8 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
+			productName = MLXVLM;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 01A8592F2F1745C000B22DE4 /* Project object */;
 }
