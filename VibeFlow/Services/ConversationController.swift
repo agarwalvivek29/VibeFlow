@@ -319,23 +319,35 @@ final class ConversationController: ObservableObject {
         HUDWindowController.shared.updatePosition()
         #endif
 
-        guard !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            print("🛑 Empty transcript, skipping processing")
+            return
+        }
+
+        print("📝 Raw transcript: '\(transcript)'")
 
         let cleaned = settings.removeFiller ? FillerRemover.removeFiller(from: transcript) : transcript
+        if settings.removeFiller {
+            print("🧹 After filler removal: '\(cleaned)'")
+        }
 
         var processedText = ""
         var usedLLM = false
 
         if settings.useLLMProcessing, let processor = textProcessor {
+            print("🤖 Sending to text processor (\(type(of: processor)))...")
             do {
                 processedText = try await processor.process(text: cleaned, systemPrompt: settings.buildSystemPrompt())
+                print("✅ Processed text: '\(processedText)'")
                 pasteToFrontmostApp(processedText)
                 usedLLM = true
             } catch {
+                print("❌ Text processing failed: \(error)")
                 pasteToFrontmostApp(cleaned)
                 processedText = cleaned
             }
         } else {
+            print("⏭️ Text processing disabled (useLLMProcessing=\(settings.useLLMProcessing), processor=\(textProcessor == nil ? "nil" : "set"))")
             pasteToFrontmostApp(cleaned)
             processedText = cleaned
         }

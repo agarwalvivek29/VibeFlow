@@ -162,6 +162,15 @@ final class AppSettings: ObservableObject {
             case .small: return 244
             }
         }
+
+        /// Model variant string for WhisperKit (e.g. "tiny", "base", "small")
+        var modelVariant: String {
+            switch self {
+            case .tiny:  return "tiny"
+            case .base:  return "base"
+            case .small: return "small"
+            }
+        }
     }
 
     private static let defaults = UserDefaults.standard

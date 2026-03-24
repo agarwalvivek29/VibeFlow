@@ -41,19 +41,38 @@ struct VibeFlowApp: App {
         print("🚀 VibeFlow initializing...")
         let settingsInstance = AppSettings()
         print("🚀 Settings loaded")
-        let speechEngine = AppleSpeechEngine()
-        print("🚀 Speech engine created")
-        let config = settingsInstance.liteLLMConfig ?? LiteLLMConfig(baseURL: URL(string: "http://127.0.0.1:4000")!, apiKey: nil)
-        print("🚀 LiteLLM config ready")
-        let llmClient = LiteLLMClient(config: config)
-        print("🚀 LiteLLM client created")
-        let textProcessor = RemoteLLMProcessor(client: llmClient, model: settingsInstance.llmModel)
-        print("🚀 Text processor created")
+
+        let speechEngine: any SpeechRecognitionService = Self.buildSpeechEngine(from: settingsInstance)
+        print("🚀 Speech engine created: \(settingsInstance.speechEngine.rawValue)")
+
+        let textProcessor: (any TextProcessingService)? = Self.buildTextProcessor(from: settingsInstance)
+        print("🚀 Text processor created: \(settingsInstance.textCleanupEngine.rawValue)")
+
         let controllerInstance = ConversationController(speechEngine: speechEngine, textProcessor: textProcessor, settings: settingsInstance)
         print("🚀 ConversationController created")
         _settings = StateObject(wrappedValue: settingsInstance)
         _controller = StateObject(wrappedValue: controllerInstance)
         print("🚀 VibeFlow init complete")
+    }
+
+    private static func buildSpeechEngine(from settings: AppSettings) -> any SpeechRecognitionService {
+        switch settings.speechEngine {
+        case .apple:
+            return AppleSpeechEngine()
+        case .whisper:
+            return WhisperEngine(modelVariant: settings.whisperModelSize.modelVariant)
+        }
+    }
+
+    private static func buildTextProcessor(from settings: AppSettings) -> (any TextProcessingService)? {
+        guard settings.useLLMProcessing else { return nil }
+        switch settings.textCleanupEngine {
+        case .localSLM:
+            return LocalSLMProcessor()
+        case .remoteLLM:
+            let config = settings.liteLLMConfig ?? LiteLLMConfig(baseURL: URL(string: "http://127.0.0.1:4000")!, apiKey: nil)
+            return RemoteLLMProcessor(client: LiteLLMClient(config: config), model: settings.llmModel)
+        }
     }
 
     var body: some Scene {
@@ -104,12 +123,13 @@ struct VibeFlowApp: App {
 
                     print("📱 onAppear complete")
                 }
-                .onChange(of: settings.liteLLMBaseURL) {
-                    updateLLMClient()
-                }
-                .onChange(of: settings.liteLLMApiKey) {
-                    updateLLMClient()
-                }
+                .onChange(of: settings.speechEngine) { rebuildEngines() }
+                .onChange(of: settings.whisperModelSize) { rebuildEngines() }
+                .onChange(of: settings.textCleanupEngine) { rebuildEngines() }
+                .onChange(of: settings.useLLMProcessing) { rebuildEngines() }
+                .onChange(of: settings.liteLLMBaseURL) { rebuildEngines() }
+                .onChange(of: settings.liteLLMApiKey) { rebuildEngines() }
+                .onChange(of: settings.llmModel) { rebuildEngines() }
         }
         .modelContainer(sharedModelContainer)
         .windowStyle(.hiddenTitleBar)
@@ -121,10 +141,10 @@ struct VibeFlowApp: App {
         }
     }
 
-    private func updateLLMClient() {
-        guard let config = settings.liteLLMConfig else { return }
-        let newClient = LiteLLMClient(config: config)
-        let newProcessor = RemoteLLMProcessor(client: newClient, model: settings.llmModel)
-        controller.updateEngines(speech: controller.speechEngine, textProcessor: newProcessor)
+    private func rebuildEngines() {
+        let newSpeech = Self.buildSpeechEngine(from: settings)
+        let newProcessor = Self.buildTextProcessor(from: settings)
+        print("🔄 Engines updated: speech=\(settings.speechEngine.rawValue), text=\(settings.textCleanupEngine.rawValue), enabled=\(settings.useLLMProcessing)")
+        controller.updateEngines(speech: newSpeech, textProcessor: newProcessor)
     }
 }
