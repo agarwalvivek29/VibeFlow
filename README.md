@@ -41,7 +41,7 @@ Hotkey → [Speech Engine] → raw text → [Filler Remover] → [Text Processor
 | **Speech-to-Text** | Apple Speech (built-in, fast) | WhisperKit (Whisper on Neural Engine) |
 | **Text Cleanup** | Local SLM — Qwen 0.5B via MLX (~400MB, runs on GPU) | Remote LLM — any OpenAI-compatible endpoint |
 
-Switch between engines in Settings. Models download automatically on first use.
+Switch between engines in Settings. Models preload eagerly when selected.
 
 ## Requirements
 
@@ -57,8 +57,8 @@ Switch between engines in Settings. Models download automatically on first use.
 
 1. Clone the repo:
    ```bash
-   git clone https://github.com/vibe-bros/VibeFlow.git
-   cd VibeFlow
+   git clone https://github.com/vibe-bros/WhisprFlow.git
+   cd WhisprFlow
    ```
 
 2. Open in Xcode:
@@ -90,50 +90,96 @@ Switch between engines in Settings. Models download automatically on first use.
 
 ## Architecture
 
+### Protocol-Based Engine System
+
+Two protocols allow hot-swapping engines at runtime:
+
+```swift
+@MainActor protocol SpeechRecognitionService: AnyObject {
+    var transcript: String { get }
+    var level: Float { get }
+    func startRecording(contextualTerms: [String]) throws
+    func stopAndWaitForFinal() async -> String
+    func stop()
+}
+
+protocol TextProcessingService {
+    func process(text: String, systemPrompt: String) async throws -> String
+}
 ```
-VibeFlow/
-├── App/
-│   ├── VibeFlowApp.swift                    # Entry point, engine construction
-│   └── RootView.swift                       # Navigation root
-│
-├── Models/
-│   ├── AppSettings.swift                    # Settings + engine enums + system prompt
-│   ├── DictionaryEntry.swift                # SwiftData custom vocabulary model
-│   ├── TranscriptionEntry.swift             # SwiftData transcription history
-│   ├── KeyBinding.swift                     # Hotkey configuration
-│   └── NavigationItem.swift                 # Sidebar navigation
-│
-├── Services/
-│   ├── Protocols/
-│   │   ├── SpeechRecognitionService.swift   # STT engine protocol
-│   │   └── TextProcessingService.swift      # Text cleanup protocol
-│   ├── AppleSpeechEngine.swift              # Apple SFSpeechRecognizer engine
-│   ├── WhisperEngine.swift                  # WhisperKit engine
-│   ├── LocalSLMProcessor.swift              # MLX Qwen 0.5B processor
-│   ├── RemoteLLMProcessor.swift             # LiteLLM/OpenAI-compatible endpoint
-│   ├── FillerRemover.swift                  # Regex-based filler word removal
-│   ├── LiteLLMClient.swift                  # HTTP streaming client
-│   ├── ConversationController.swift         # Orchestrator (hotkey → record → process → paste)
-│   ├── ModelDownloadManager.swift           # Model download + cache management
-│   └── PermissionsHelper.swift              # macOS permission handling
-│
-├── Views/
-│   ├── Main/                                # Dashboard, History, Sidebar
-│   ├── Settings/                            # Engine selection, writing style, hotkeys
-│   ├── Dictionary/                          # Custom vocabulary CRUD
-│   ├── HUD/                                 # Recording overlay + waveform
-│   └── Components/                          # Reusable UI components
-│
-└── Assets.xcassets/                         # App icon, colors
-```
+
+### Engine Implementations
+
+| Protocol | Class | Details |
+|----------|-------|---------|
+| SpeechRecognitionService | `AppleSpeechEngine` | Apple SFSpeechRecognizer, supports `contextualStrings` for custom dictionary |
+| SpeechRecognitionService | `WhisperEngine` | WhisperKit (CoreML + Neural Engine), model auto-downloads |
+| TextProcessingService | `LocalSLMProcessor` | Qwen 0.5B via MLX Swift, fully offline |
+| TextProcessingService | `RemoteLLMProcessor` | Any OpenAI-compatible endpoint via LiteLLMClient |
+
+### Core Services
+
+- **ConversationController** — Orchestrates hotkey → record → process → paste. Loads dictionary terms from SwiftData, applies regex filler removal, then routes to the active text processor.
+- **FillerRemover** — Static regex patterns strip filler words before model processing.
+- **ModelDownloadManager** — Downloads and caches Whisper/SLM models to `~/Library/Application Support/VibeFlow/Models/`.
+- **PermissionsHelper** — Checks/requests Accessibility, Microphone, Speech Recognition permissions.
+
+### Settings (AppSettings.swift)
+
+All persisted via UserDefaults. Key enums:
+- `SpeechEngine`: `.apple`, `.whisper`
+- `TextCleanupEngine`: `.localSLM`, `.remoteLLM`
+- `WhisperModelSize`: `.tiny`, `.base`, `.small`
+- `WritingStyle`: `.casual`, `.professional`, `.creative`, `.technical`
+- `Formality`: `.informal`, `.neutral`, `.formal`
+
+### Data Models (SwiftData)
+
+- **TranscriptionEntry** — raw transcript, processed text, timestamp, word count, model used
+- **DictionaryEntry** — term, category, isEnabled
 
 ### Key Design Decisions
 
-- **Protocol-based engines** — `SpeechRecognitionService` and `TextProcessingService` protocols allow hot-swapping engines at runtime
+- **Protocol-based engines** — `SpeechRecognitionService` and `TextProcessingService` allow hot-swapping at runtime
 - **No backend required** — Pure client app. Remote LLM is optional, not mandatory
 - **Eager model preloading** — Models load when selected in settings, not on first use
-- **Regex before SLM** — Filler words are stripped by regex before hitting the language model, reducing token count and improving output quality
-- **Dictionary via contextualStrings** — Custom terms are fed to Apple Speech's `contextualStrings` API for better recognition accuracy
+- **Regex before SLM** — Filler words stripped by regex before the language model, reducing tokens and improving output
+- **Dictionary via contextualStrings** — Custom terms fed to Apple Speech's `contextualStrings` API for better recognition
+
+### File Structure
+
+```
+VibeFlow/
+├── App/
+│   ├── VibeFlowApp.swift              # Entry point, engine construction, preloading
+│   └── RootView.swift
+├── Models/
+│   ├── AppSettings.swift              # Settings, enums, system prompt
+│   ├── DictionaryEntry.swift          # Custom vocabulary (SwiftData)
+│   ├── TranscriptionEntry.swift       # History (SwiftData)
+│   ├── KeyBinding.swift               # Hotkey config
+│   └── NavigationItem.swift           # Sidebar nav
+├── Services/
+│   ├── Protocols/
+│   │   ├── SpeechRecognitionService.swift
+│   │   └── TextProcessingService.swift
+│   ├── AppleSpeechEngine.swift        # Apple Speech
+│   ├── WhisperEngine.swift            # WhisperKit
+│   ├── LocalSLMProcessor.swift        # MLX Qwen 0.5B
+│   ├── RemoteLLMProcessor.swift       # LiteLLM wrapper
+│   ├── FillerRemover.swift            # Regex filler removal
+│   ├── LiteLLMClient.swift            # HTTP streaming client
+│   ├── ConversationController.swift   # Main orchestrator
+│   ├── ModelDownloadManager.swift     # Model download/cache
+│   └── PermissionsHelper.swift        # macOS permissions
+├── Views/
+│   ├── Main/                          # Dashboard, History, Sidebar
+│   ├── Settings/                      # Engine pickers, hotkeys, style
+│   ├── Dictionary/                    # Custom vocab CRUD
+│   ├── HUD/                           # Recording overlay
+│   └── Components/                    # Shared UI
+└── Assets.xcassets/
+```
 
 ## Resource Usage
 
