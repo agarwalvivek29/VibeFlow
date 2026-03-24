@@ -60,6 +60,19 @@ final class AppSettings: ObservableObject {
         didSet { save() }
     }
 
+    // Engine Selection Settings
+    @Published var speechEngine: SpeechEngine {
+        didSet { save() }
+    }
+
+    @Published var textCleanupEngine: TextCleanupEngine {
+        didSet { save() }
+    }
+
+    @Published var whisperModelSize: WhisperModelSize {
+        didSet { save() }
+    }
+
     // Computed property for active recording key
     var activeRecordingKey: KeyBinding {
         switch recordingKeyPreset {
@@ -106,6 +119,22 @@ final class AppSettings: ObservableObject {
         case formal = "Formal"
     }
 
+    enum SpeechEngine: String, CaseIterable, Codable {
+        case apple = "Apple Speech"
+        case whisper = "Whisper (Local)"
+    }
+
+    enum TextCleanupEngine: String, CaseIterable, Codable {
+        case localSLM = "Local AI (Qwen)"
+        case remoteLLM = "Remote LLM"
+    }
+
+    enum WhisperModelSize: String, CaseIterable, Codable {
+        case tiny = "Tiny (~39MB)"
+        case base = "Base (~74MB)"
+        case small = "Small (~244MB)"
+    }
+
     private static let defaults = UserDefaults.standard
     private static let baseURLKey = "liteLLMBaseURL"
     private static let apiKeyKey = "liteLLMApiKey"
@@ -119,6 +148,9 @@ final class AppSettings: ObservableObject {
     private static let customRecordingKeyKey = "customRecordingKey"
     private static let postTranscriptionActionKey = "postTranscriptionAction"
     private static let customPostTranscriptionKeyKey = "customPostTranscriptionKey"
+    private static let speechEngineKey = "speechEngine"
+    private static let textCleanupEngineKey = "textCleanupEngine"
+    private static let whisperModelSizeKey = "whisperModelSize"
 
     init() {
         self.liteLLMBaseURL = Self.defaults.string(forKey: Self.baseURLKey) ?? "http://127.0.0.1:4000"
@@ -171,6 +203,28 @@ final class AppSettings: ObservableObject {
         } else {
             self.customPostTranscriptionKey = nil
         }
+
+        // Load engine selection settings
+        if let raw = Self.defaults.string(forKey: Self.speechEngineKey),
+           let engine = SpeechEngine(rawValue: raw) {
+            self.speechEngine = engine
+        } else {
+            self.speechEngine = .apple
+        }
+
+        if let raw = Self.defaults.string(forKey: Self.textCleanupEngineKey),
+           let engine = TextCleanupEngine(rawValue: raw) {
+            self.textCleanupEngine = engine
+        } else {
+            self.textCleanupEngine = .remoteLLM
+        }
+
+        if let raw = Self.defaults.string(forKey: Self.whisperModelSizeKey),
+           let size = WhisperModelSize(rawValue: raw) {
+            self.whisperModelSize = size
+        } else {
+            self.whisperModelSize = .tiny
+        }
     }
 
     private func save() {
@@ -200,6 +254,11 @@ final class AppSettings: ObservableObject {
         } else {
             Self.defaults.removeObject(forKey: Self.customPostTranscriptionKeyKey)
         }
+
+        // Save engine selection settings
+        Self.defaults.set(speechEngine.rawValue, forKey: Self.speechEngineKey)
+        Self.defaults.set(textCleanupEngine.rawValue, forKey: Self.textCleanupEngineKey)
+        Self.defaults.set(whisperModelSize.rawValue, forKey: Self.whisperModelSizeKey)
     }
 
     func buildSystemPrompt() -> String {
