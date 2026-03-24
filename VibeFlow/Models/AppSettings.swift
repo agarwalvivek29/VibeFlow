@@ -303,11 +303,18 @@ final class AppSettings: ObservableObject {
         var prompt = "You are a dictation assistant. Your job is to take spoken transcriptions and convert them into polished, well-formatted text."
 
         if removeFiller {
-            prompt += " Remove filler words like 'um', 'uh', 'like', 'you know', etc."
+            prompt += " Remove filler words like 'um', 'uh', 'like', 'you know', 'so', 'right', 'I mean', etc."
         }
 
         if autoFormat {
-            prompt += " Add proper punctuation, capitalization, and paragraph breaks."
+            prompt += """
+             Apply smart formatting:
+            - Add proper punctuation, capitalization, and paragraph breaks.
+            - When the speaker lists numbered items (e.g. "number one... number two..." or "first... second..." or "one... two..."), format them as a numbered list with each item on its own line.
+            - When the speaker lists items without numbers (e.g. "check this, also that, and finally..."), format as bullet points.
+            - Add line breaks between distinct topics or thoughts.
+            - Keep related sentences in the same paragraph.
+            """
         }
 
         prompt += " Use a \(writingStyle.rawValue.lowercased()) writing style."
@@ -321,7 +328,7 @@ final class AppSettings: ObservableObject {
             prompt += " Use formal, polished language."
         }
 
-        prompt += " Do NOT add extra content - only clean up what was spoken. Return ONLY the cleaned text, no explanations or meta-commentary."
+        prompt += " Do NOT add extra content beyond what was spoken — only restructure and format. Return ONLY the formatted text, no explanations or meta-commentary."
 
         return prompt
     }
