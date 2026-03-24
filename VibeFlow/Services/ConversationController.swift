@@ -2,9 +2,12 @@ import Foundation
 import SwiftUI
 import SwiftData
 import Combine
+import os.log
 #if os(macOS)
 import AppKit
 #endif
+
+private let pipelineLog = Logger(subsystem: "com.vibeflow.app", category: "pipeline")
 
 @MainActor
 final class ConversationController: ObservableObject {
@@ -320,34 +323,37 @@ final class ConversationController: ObservableObject {
         #endif
 
         guard !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            print("🛑 Empty transcript, skipping processing")
+            pipelineLog.info("🛑 Empty transcript, skipping processing")
             return
         }
 
-        print("📝 Raw transcript: '\(transcript)'")
+        pipelineLog.info("📝 Raw transcript: '\(transcript)'")
 
         let cleaned = settings.removeFiller ? FillerRemover.removeFiller(from: transcript) : transcript
         if settings.removeFiller {
-            print("🧹 After filler removal: '\(cleaned)'")
+            pipelineLog.info("🧹 After filler removal: '\(cleaned)'")
         }
 
         var processedText = ""
         var usedLLM = false
 
         if settings.useLLMProcessing, let processor = textProcessor {
-            print("🤖 Sending to text processor (\(type(of: processor)))...")
+            pipelineLog.info("🤖 Sending to text processor (\(String(describing: type(of: processor))))...")
+            let start = Date()
             do {
                 processedText = try await processor.process(text: cleaned, systemPrompt: settings.buildSystemPrompt())
-                print("✅ Processed text: '\(processedText)'")
+                let elapsed = Date().timeIntervalSince(start)
+                pipelineLog.info("✅ Processed in \(String(format: "%.2f", elapsed))s: '\(processedText)'")
                 pasteToFrontmostApp(processedText)
                 usedLLM = true
             } catch {
-                print("❌ Text processing failed: \(error)")
+                pipelineLog.error("❌ Text processing failed: \(error.localizedDescription)")
                 pasteToFrontmostApp(cleaned)
                 processedText = cleaned
             }
         } else {
-            print("⏭️ Text processing disabled (useLLMProcessing=\(settings.useLLMProcessing), processor=\(textProcessor == nil ? "nil" : "set"))")
+            let hasProcessor = self.textProcessor != nil
+            pipelineLog.info("⏭️ Text processing disabled (useLLMProcessing=\(self.settings.useLLMProcessing), processor=\(hasProcessor ? "set" : "nil"))")
             pasteToFrontmostApp(cleaned)
             processedText = cleaned
         }
