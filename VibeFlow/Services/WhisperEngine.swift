@@ -1,12 +1,12 @@
 // WhisperEngine.swift
 // VibeFlow
 //
-// Whisper.cpp-based speech recognition engine for fully offline transcription.
+// WhisperKit-based speech recognition engine for fully offline transcription.
 //
-// Required SPM dependency: whisper.cpp
+// Required SPM dependency: WhisperKit
 //   Add via Xcode: File > Add Package Dependencies...
-//   URL: https://github.com/ggerganov/whisper.cpp
-//   Then import the "whisper" library product.
+//   URL: https://github.com/argmaxinc/WhisperKit.git
+//   Then select the "WhisperKit" product.
 
 import Foundation
 import AVFoundation
@@ -16,8 +16,8 @@ import Combine
 import CoreAudio
 #endif
 
-#if canImport(whisper)
-import whisper
+#if canImport(WhisperKit)
+import WhisperKit
 #endif
 
 // MARK: - WhisperEngine
@@ -35,14 +35,15 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
     private let audioEngine = AVAudioEngine()
     private var audioBuffer: [Float] = []
     private var deviceSampleRate: Double = 16000
-    /// Max buffer size: 5 minutes at 48 kHz
-    private let maxBufferSize = 14_400_000
+    private let maxBufferSize = 14_400_000 // 5 minutes at 48 kHz
 
     // MARK: Whisper
 
-    private let modelPath: URL
-    private var whisperContext: OpaquePointer?
+    #if canImport(WhisperKit)
+    private var whisperKit: WhisperKit?
+    #endif
     private var contextualTerms: [String] = []
+    private let modelVariant: String
 
     // MARK: Level metering
 
@@ -51,24 +52,23 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
 
     // MARK: - Init
 
-    init(modelPath: URL) {
-        self.modelPath = modelPath
+    /// Initialize with a Whisper model variant name (e.g. "tiny", "base", "small").
+    /// WhisperKit downloads and caches the model automatically on first use.
+    init(modelVariant: String = "tiny") {
+        self.modelVariant = modelVariant
         super.init()
-        #if canImport(whisper)
-        whisperContext = whisper_init_from_file(modelPath.path)
-        if whisperContext == nil {
-            print("Failed to load Whisper model at \(modelPath.path)")
-        }
-        #else
-        print("whisper.cpp SPM dependency not installed — WhisperEngine unavailable")
-        #endif
     }
 
-    deinit {
-        #if canImport(whisper)
-        if let ctx = whisperContext {
-            whisper_free(ctx)
+    /// Load the WhisperKit pipeline. Call this before first transcription.
+    func loadModel() async {
+        #if canImport(WhisperKit)
+        do {
+            whisperKit = try await WhisperKit(model: "openai_whisper-\(modelVariant)")
+        } catch {
+            print("Failed to load WhisperKit model '\(modelVariant)': \(error)")
         }
+        #else
+        print("WhisperKit SPM dependency not installed — WhisperEngine unavailable")
         #endif
     }
 
@@ -90,7 +90,6 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
         transcript = ""
 
         #if os(macOS)
-        // Get the system default input device
         var defaultDeviceID: AudioDeviceID = 0
         var propertyAddress = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDefaultInputDevice,
@@ -101,22 +100,14 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
 
         let status = AudioObjectGetPropertyData(
             AudioObjectID(kAudioObjectSystemObject),
-            &propertyAddress,
-            0,
-            nil,
-            &propertySize,
-            &defaultDeviceID
+            &propertyAddress, 0, nil, &propertySize, &defaultDeviceID
         )
 
         guard status == noErr, defaultDeviceID != 0 else {
-            throw NSError(
-                domain: "WhisperEngine",
-                code: 2,
-                userInfo: [NSLocalizedDescriptionKey: "No input device available"]
-            )
+            throw NSError(domain: "WhisperEngine", code: 2,
+                          userInfo: [NSLocalizedDescriptionKey: "No input device available"])
         }
 
-        // Get the device's native sample rate
         var sampleRate: Float64 = 0
         var sampleRateSize = UInt32(MemoryLayout<Float64>.size)
         var sampleRateAddress = AudioObjectPropertyAddress(
@@ -126,12 +117,7 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
         )
 
         let sampleRateStatus = AudioObjectGetPropertyData(
-            defaultDeviceID,
-            &sampleRateAddress,
-            0,
-            nil,
-            &sampleRateSize,
-            &sampleRate
+            defaultDeviceID, &sampleRateAddress, 0, nil, &sampleRateSize, &sampleRate
         )
 
         if sampleRateStatus == noErr, sampleRate > 0 {
@@ -140,30 +126,19 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
             deviceSampleRate = 48000
         }
 
-        // Stop and reset audio engine to ensure clean state
-        if audioEngine.isRunning {
-            audioEngine.stop()
-        }
+        if audioEngine.isRunning { audioEngine.stop() }
         audioEngine.reset()
 
-        // Set the input device on the audio unit
         let inputNode = audioEngine.inputNode
         if let audioUnit = inputNode.audioUnit {
             var deviceIDToSet = defaultDeviceID
-            let setStatus = AudioUnitSetProperty(
-                audioUnit,
-                kAudioOutputUnitProperty_CurrentDevice,
-                kAudioUnitScope_Global,
-                0,
-                &deviceIDToSet,
-                UInt32(MemoryLayout<AudioDeviceID>.size)
+            AudioUnitSetProperty(
+                audioUnit, kAudioOutputUnitProperty_CurrentDevice,
+                kAudioUnitScope_Global, 0,
+                &deviceIDToSet, UInt32(MemoryLayout<AudioDeviceID>.size)
             )
-            if setStatus != noErr {
-                print("Failed to set audio input device (status: \(setStatus))")
-            }
         }
 
-        // Get the format after setting the device
         let hardwareFormat = inputNode.inputFormat(forBus: 0)
         let tapFormat: AVAudioFormat?
         if hardwareFormat.sampleRate > 0, hardwareFormat.channelCount > 0 {
@@ -185,7 +160,6 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
             let frames = Int(buffer.frameLength)
             let samples = Array(UnsafeBufferPointer(start: channelData[0], count: frames))
             self.audioBuffer.append(contentsOf: samples)
-            // Prevent unbounded memory growth — drop oldest samples
             if self.audioBuffer.count > self.maxBufferSize {
                 self.audioBuffer.removeFirst(self.audioBuffer.count - self.maxBufferSize)
             }
@@ -194,7 +168,6 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
 
         audioEngine.prepare()
         try audioEngine.start()
-
         startLevelTimer()
     }
 
@@ -203,53 +176,40 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
         audioEngine.stop()
         stopLevelTimer()
 
-        guard let ctx = whisperContext else {
-            return ""
-        }
-
         let samples = resampleTo16kHz(audioBuffer, from: deviceSampleRate)
         audioBuffer.removeAll(keepingCapacity: false)
 
-        #if canImport(whisper)
-        let terms = contextualTerms
-        let result: String = await Task.detached { [samples] in
-            var params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY)
-            params.print_progress = false
-            params.print_timestamps = false
+        guard !samples.isEmpty else { return "" }
 
-            let langPtr = strdup("en")
-            params.language = UnsafePointer(langPtr)
+        #if canImport(WhisperKit)
+        // Lazy-load model if needed
+        if whisperKit == nil {
+            await loadModel()
+        }
 
-            let promptText = terms.joined(separator: ", ")
-            let promptPtr = strdup(promptText)
-            params.initial_prompt = UnsafePointer(promptPtr)
+        guard let kit = whisperKit else {
+            print("WhisperKit not loaded — cannot transcribe")
+            return ""
+        }
 
-            let sampleCount = Int32(samples.count)
-            let status = samples.withUnsafeBufferPointer { bufferPtr in
-                whisper_full(ctx, params, bufferPtr.baseAddress, sampleCount)
-            }
-
-            free(langPtr)
-            free(promptPtr)
-
-            guard status == 0 else { return "" }
-
-            let segmentCount = whisper_full_n_segments(ctx)
-            var fullText = ""
-            for i in 0..<segmentCount {
-                if let cStr = whisper_full_get_segment_text(ctx, i) {
-                    fullText += String(cString: cStr)
-                }
-            }
-            return fullText.trimmingCharacters(in: .whitespacesAndNewlines)
-        }.value
+        do {
+            let options = DecodingOptions(
+                language: "en",
+                prompt: contextualTerms.isEmpty ? nil : contextualTerms.joined(separator: ", ")
+            )
+            let results = try await kit.transcribe(audioArray: samples, decodeOptions: options)
+            let text = results.map(\.text).joined(separator: " ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            transcript = text
+            return text
+        } catch {
+            print("WhisperKit transcription failed: \(error)")
+            return ""
+        }
         #else
-        let result = ""
-        print("whisper.cpp SPM dependency not installed — transcription unavailable")
+        print("WhisperKit SPM dependency not installed — transcription unavailable")
+        return ""
         #endif
-
-        transcript = result
-        return result
     }
 
     func stop() {
@@ -262,21 +222,15 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
 
     // MARK: - Resampling
 
-    /// Resample audio from the device sample rate to 16 kHz for Whisper.
     private func resampleTo16kHz(_ input: [Float], from sourceSampleRate: Double) -> [Float] {
         let targetRate: Double = 16000
-        guard sourceSampleRate != targetRate, !input.isEmpty else {
-            return input
-        }
+        guard sourceSampleRate != targetRate, !input.isEmpty else { return input }
 
         let ratio = targetRate / sourceSampleRate
         let outputLength = Int(Double(input.count) * ratio)
         var output = [Float](repeating: 0, count: outputLength)
-
-        // Use vDSP linear interpolation for resampling
         var control = (0..<outputLength).map { Float(Double($0) / ratio) }
         vDSP_vlint(input, &control, 1, &output, 1, vDSP_Length(outputLength), vDSP_Length(input.count))
-
         return output
     }
 
@@ -299,15 +253,11 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
         let frames = Int(buffer.frameLength)
         var mean: Float = 0
         vDSP_meamgv(ch[0], 1, &mean, vDSP_Length(frames))
-        let rms = sqrtf(mean)
-        let normalized = min(max(rms * 10, 0), 1)
-        pendingLevel = normalized
+        pendingLevel = min(max(sqrtf(mean) * 10, 0), 1)
     }
 
     private func sampleLevel() {
         let smoothed = (level * 0.8) + (pendingLevel * 0.2)
-        if abs(smoothed - level) > 0.001 {
-            level = smoothed
-        }
+        if abs(smoothed - level) > 0.001 { level = smoothed }
     }
 }
