@@ -4,6 +4,19 @@
 
 VibeFlow is an open-source macOS voice dictation app. Hold a hotkey, speak naturally, release — clean, formatted text gets pasted into any application. No cloud. No subscriptions. Everything runs locally on your Mac.
 
+<p align="center">
+  <img src="docs/screenshots/dashboard.png" width="700" alt="VibeFlow Dashboard — 45 transcriptions, 1099 words, AI-enhanced history" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/settings.png" width="340" alt="Engine Selection — Apple Speech or Whisper, Local SLM or Remote LLM" />
+  <img src="docs/screenshots/dictionary.png" width="340" alt="Custom Dictionary — add technical terms for better recognition" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/terminal.png" width="700" alt="Built, released, and shipped from the terminal" />
+</p>
+
 ## Features
 
 - **Universal Dictation** — Works across any macOS app (Slack, VS Code, Notion, browsers, terminals)
