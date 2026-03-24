@@ -194,10 +194,9 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
 
         do {
             let options = DecodingOptions(
-                language: "en",
-                prompt: contextualTerms.isEmpty ? nil : contextualTerms.joined(separator: ", ")
+                language: "en"
             )
-            let results = try await kit.transcribe(audioArray: samples, decodeOptions: options)
+            let results: [TranscriptionResult] = try await kit.transcribe(audioArray: samples, decodeOptions: options)
             let text = results.map(\.text).joined(separator: " ")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             transcript = text
