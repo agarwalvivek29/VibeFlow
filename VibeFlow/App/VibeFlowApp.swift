@@ -104,7 +104,7 @@ struct VibeFlowApp: App {
         }
         .modelContainer(sharedModelContainer)
         .windowStyle(.hiddenTitleBar)
-        .windowResizability(.contentSize)
+        .windowResizability(.automatic)
         .defaultSize(width: 1000, height: 650)
         .commands {
             CommandGroup(replacing: .newItem) { }
