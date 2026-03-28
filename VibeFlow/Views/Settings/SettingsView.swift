@@ -2,7 +2,9 @@
 //  SettingsView.swift
 //  VibeFlow
 //
-//  Minimal settings
+//  Settings with draft-save pattern: changes are local until Save is pressed.
+//  Pressing Save rebuilds engines behind a loading overlay.
+//  Navigating away with unsaved changes shows a discard confirmation.
 //
 
 import SwiftUI
@@ -10,177 +12,446 @@ import SwiftUI
 import Carbon.HIToolbox
 #endif
 
+// MARK: - Settings Draft
+
+/// Local snapshot of all settings fields. Edited freely; applied to AppSettings only on Save.
+private struct SettingsDraft {
+    var speechEngine: AppSettings.SpeechEngine
+    var whisperModelSize: AppSettings.WhisperModelSize
+    var useLLMProcessing: Bool
+    var textCleanupEngine: AppSettings.TextCleanupEngine
+    var liteLLMBaseURL: String
+    var liteLLMApiKey: String
+    var llmModel: String
+    var writingStyle: AppSettings.WritingStyle
+    var formality: AppSettings.Formality
+    var removeFiller: Bool
+    var autoFormat: Bool
+    var recordingKeyPreset: RecordingKeyPreset
+    var customRecordingKey: KeyBinding?
+    var postTranscriptionAction: PostTranscriptionAction
+    var customPostTranscriptionKey: KeyBinding?
+
+    init(from settings: AppSettings) {
+        speechEngine = settings.speechEngine
+        whisperModelSize = settings.whisperModelSize
+        useLLMProcessing = settings.useLLMProcessing
+        textCleanupEngine = settings.textCleanupEngine
+        liteLLMBaseURL = settings.liteLLMBaseURL
+        liteLLMApiKey = settings.liteLLMApiKey
+        llmModel = settings.llmModel
+        writingStyle = settings.writingStyle
+        formality = settings.formality
+        removeFiller = settings.removeFiller
+        autoFormat = settings.autoFormat
+        recordingKeyPreset = settings.recordingKeyPreset
+        customRecordingKey = settings.customRecordingKey
+        postTranscriptionAction = settings.postTranscriptionAction
+        customPostTranscriptionKey = settings.customPostTranscriptionKey
+    }
+
+    func isDirty(comparedTo settings: AppSettings) -> Bool {
+        speechEngine != settings.speechEngine ||
+        whisperModelSize != settings.whisperModelSize ||
+        useLLMProcessing != settings.useLLMProcessing ||
+        textCleanupEngine != settings.textCleanupEngine ||
+        liteLLMBaseURL != settings.liteLLMBaseURL ||
+        liteLLMApiKey != settings.liteLLMApiKey ||
+        llmModel != settings.llmModel ||
+        writingStyle != settings.writingStyle ||
+        formality != settings.formality ||
+        removeFiller != settings.removeFiller ||
+        autoFormat != settings.autoFormat ||
+        recordingKeyPreset != settings.recordingKeyPreset ||
+        customRecordingKey != settings.customRecordingKey ||
+        postTranscriptionAction != settings.postTranscriptionAction ||
+        customPostTranscriptionKey != settings.customPostTranscriptionKey
+    }
+
+    func apply(to settings: AppSettings) {
+        settings.speechEngine = speechEngine
+        settings.whisperModelSize = whisperModelSize
+        settings.useLLMProcessing = useLLMProcessing
+        settings.textCleanupEngine = textCleanupEngine
+        settings.liteLLMBaseURL = liteLLMBaseURL
+        settings.liteLLMApiKey = liteLLMApiKey
+        settings.llmModel = llmModel
+        settings.writingStyle = writingStyle
+        settings.formality = formality
+        settings.removeFiller = removeFiller
+        settings.autoFormat = autoFormat
+        settings.recordingKeyPreset = recordingKeyPreset
+        settings.customRecordingKey = customRecordingKey
+        settings.postTranscriptionAction = postTranscriptionAction
+        settings.customPostTranscriptionKey = customPostTranscriptionKey
+    }
+}
+
+// MARK: - Settings View
+
 struct SettingsView: View {
     @ObservedObject var settings: AppSettings
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 32) {
-                // Recording Hotkey
-                SettingsSection(title: "Recording Hotkey") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        ForEach(RecordingKeyPreset.allCases, id: \.self) { preset in
-                            RadioRow(
-                                title: preset.rawValue,
-                                subtitle: preset.description,
-                                isSelected: settings.recordingKeyPreset == preset
-                            ) {
-                                settings.recordingKeyPreset = preset
-                            }
-                        }
+    @EnvironmentObject var controller: ConversationController
+    /// Synced up to MainView so nav-away can be intercepted.
+    @Binding var isDirty: Bool
 
-                        // Custom key capture field
-                        if settings.recordingKeyPreset == .custom {
-                            KeyCaptureField(
-                                label: "Press a key combination",
-                                binding: settings.customRecordingKey
-                            ) { newBinding in
-                                settings.customRecordingKey = newBinding
-                            }
-                            .padding(.top, 4)
-                        }
+    @State private var draft: SettingsDraft
+    @State private var isSaving = false
+
+    private let brandColor = Color(red: 0.357, green: 0.310, blue: 0.914)
+
+    init(settings: AppSettings, isDirty: Binding<Bool>) {
+        self.settings = settings
+        self._isDirty = isDirty
+        self._draft = State(initialValue: SettingsDraft(from: settings))
+    }
+
+    var body: some View {
+        ZStack {
+            VStack(spacing: 0) {
+                // Main scrollable content
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 32) {
+                        recordingHotkeySection
+                        speechEngineSection
+                        textCleanupSection
+                        customDictionarySection
+                        afterTranscriptionSection
+                        PermissionsSection()
+                        Spacer().frame(height: 20)
+                    }
+                    .padding(.horizontal, 32)
+                    .padding(.top, 24)
+                }
+
+                // Sticky save footer — always visible
+                saveFooter
+            }
+            .background(Color.white)
+
+            // Loading overlay — covers everything while saving
+            if isSaving {
+                savingOverlay
+            }
+        }
+        .navigationTitle("")
+        .onChange(of: draft.speechEngine)           { syncDirty() }
+        .onChange(of: draft.whisperModelSize)       { syncDirty() }
+        .onChange(of: draft.useLLMProcessing)       { syncDirty() }
+        .onChange(of: draft.textCleanupEngine)      { syncDirty() }
+        .onChange(of: draft.liteLLMBaseURL)         { syncDirty() }
+        .onChange(of: draft.liteLLMApiKey)          { syncDirty() }
+        .onChange(of: draft.llmModel)               { syncDirty() }
+        .onChange(of: draft.writingStyle)           { syncDirty() }
+        .onChange(of: draft.formality)              { syncDirty() }
+        .onChange(of: draft.removeFiller)           { syncDirty() }
+        .onChange(of: draft.autoFormat)             { syncDirty() }
+        .onChange(of: draft.recordingKeyPreset)     { syncDirty() }
+        .onChange(of: draft.postTranscriptionAction){ syncDirty() }
+    }
+
+    // MARK: - Sections
+
+    private var recordingHotkeySection: some View {
+        SettingsSection(title: "Recording Hotkey") {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(RecordingKeyPreset.allCases, id: \.self) { preset in
+                    RadioRow(
+                        title: preset.rawValue,
+                        subtitle: preset.description,
+                        isSelected: draft.recordingKeyPreset == preset
+                    ) {
+                        draft.recordingKeyPreset = preset
                     }
                 }
 
-                // Speech Engine
-                SettingsSection(title: "Speech Engine") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Picker("Speech Engine", selection: $settings.speechEngine) {
-                            Text("Apple Speech").tag(AppSettings.SpeechEngine.apple)
-                            Text("Whisper").tag(AppSettings.SpeechEngine.whisper)
+                if draft.recordingKeyPreset == .custom {
+                    KeyCaptureField(
+                        label: "Press a key combination",
+                        binding: draft.customRecordingKey
+                    ) { newBinding in
+                        draft.customRecordingKey = newBinding
+                        syncDirty()
+                    }
+                    .padding(.top, 4)
+                }
+            }
+        }
+    }
+
+    private var speechEngineSection: some View {
+        SettingsSection(title: "Speech Engine") {
+            VStack(alignment: .leading, spacing: 12) {
+                Picker("Speech Engine", selection: $draft.speechEngine) {
+                    Text("Apple Speech").tag(AppSettings.SpeechEngine.apple)
+                    Text("Whisper").tag(AppSettings.SpeechEngine.whisper)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+
+                if draft.speechEngine == .whisper {
+                    Picker("Model Size", selection: $draft.whisperModelSize) {
+                        Text("Tiny").tag(AppSettings.WhisperModelSize.tiny)
+                        Text("Base").tag(AppSettings.WhisperModelSize.base)
+                        Text("Small").tag(AppSettings.WhisperModelSize.small)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                }
+
+                Text("Apple Speech uses on-device recognition. Whisper runs locally for potentially better accuracy.")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+
+    private var textCleanupSection: some View {
+        SettingsSection(title: "Text Cleanup") {
+            VStack(alignment: .leading, spacing: 12) {
+                ToggleRow(title: "Enable AI Text Enhancement", isOn: $draft.useLLMProcessing)
+
+                if draft.useLLMProcessing {
+                    Divider()
+
+                    Picker("Cleanup Engine", selection: $draft.textCleanupEngine) {
+                        Text("Local SLM").tag(AppSettings.TextCleanupEngine.localSLM)
+                        Text("Remote LLM").tag(AppSettings.TextCleanupEngine.remoteLLM)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+
+                    if draft.textCleanupEngine == .remoteLLM {
+                        LabeledField(label: "Base URL", placeholder: "http://127.0.0.1:4000", text: $draft.liteLLMBaseURL)
+                        LabeledField(label: "Model", placeholder: "gpt-4o-mini", text: $draft.llmModel)
+                    } else {
+                        Text("Uses Qwen 2.5 (0.5B) running locally on your Mac. No internet required.")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+
+                    Divider()
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Writing Style")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+
+                        ForEach(AppSettings.WritingStyle.allCases, id: \.self) { style in
+                            RadioRow(
+                                title: style.rawValue,
+                                subtitle: style.description,
+                                isSelected: draft.writingStyle == style
+                            ) {
+                                draft.writingStyle = style
+                            }
+                        }
+                    }
+
+                    Divider()
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Formality")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+
+                        Picker("Formality", selection: $draft.formality) {
+                            ForEach(AppSettings.Formality.allCases, id: \.self) { level in
+                                Text(level.rawValue).tag(level)
+                            }
                         }
                         .pickerStyle(.segmented)
                         .labelsHidden()
+                    }
 
-                        if settings.speechEngine == .whisper {
-                            Picker("Model Size", selection: $settings.whisperModelSize) {
-                                Text("Tiny").tag(AppSettings.WhisperModelSize.tiny)
-                                Text("Base").tag(AppSettings.WhisperModelSize.base)
-                                Text("Small").tag(AppSettings.WhisperModelSize.small)
-                            }
-                            .pickerStyle(.segmented)
-                            .labelsHidden()
-                        }
+                    Divider()
 
-                        Text("Apple Speech uses on-device recognition. Whisper runs locally for potentially better accuracy.")
-                            .font(.system(size: 11))
-                            .foregroundColor(.secondary)
+                    ToggleRow(title: "Remove filler words", isOn: $draft.removeFiller)
+                    ToggleRow(title: "Auto-format punctuation & capitalization", isOn: $draft.autoFormat)
+                }
+            }
+        }
+    }
+
+    private var customDictionarySection: some View {
+        SettingsSection(title: "Custom Dictionary") {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Add technical terms, names, and jargon to improve recognition accuracy.")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+
+                Text("Manage your dictionary from the Dictionary tab in the sidebar.")
+                    .font(.system(size: 12))
+                    .foregroundColor(brandColor)
+            }
+        }
+    }
+
+    private var afterTranscriptionSection: some View {
+        SettingsSection(title: "After Transcription") {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(PostTranscriptionAction.allCases, id: \.self) { action in
+                    RadioRow(
+                        title: action.rawValue,
+                        subtitle: action.description,
+                        isSelected: draft.postTranscriptionAction == action
+                    ) {
+                        draft.postTranscriptionAction = action
                     }
                 }
 
-                // Text Cleanup
-                SettingsSection(title: "Text Cleanup") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        ToggleRow(title: "Enable AI Text Enhancement", isOn: $settings.useLLMProcessing)
-
-                        if settings.useLLMProcessing {
-                            Divider()
-
-                            Picker("Cleanup Engine", selection: $settings.textCleanupEngine) {
-                                Text("Local SLM").tag(AppSettings.TextCleanupEngine.localSLM)
-                                Text("Remote LLM").tag(AppSettings.TextCleanupEngine.remoteLLM)
-                            }
-                            .pickerStyle(.segmented)
-                            .labelsHidden()
-
-                            if settings.textCleanupEngine == .remoteLLM {
-                                LabeledField(label: "Base URL", placeholder: "http://127.0.0.1:4000", text: $settings.liteLLMBaseURL)
-                                LabeledField(label: "Model", placeholder: "gpt-4o-mini", text: $settings.llmModel)
-                            } else {
-                                Text("Uses Qwen 2.5 (0.5B) running locally on your Mac. No internet required.")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.secondary)
-                            }
-
-                            Divider()
-
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Writing Style")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.secondary)
-
-                                ForEach(AppSettings.WritingStyle.allCases, id: \.self) { style in
-                                    RadioRow(
-                                        title: style.rawValue,
-                                        subtitle: style.description,
-                                        isSelected: settings.writingStyle == style
-                                    ) {
-                                        settings.writingStyle = style
-                                    }
-                                }
-                            }
-
-                            Divider()
-
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Formality")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.secondary)
-
-                                Picker("Formality", selection: $settings.formality) {
-                                    ForEach(AppSettings.Formality.allCases, id: \.self) { level in
-                                        Text(level.rawValue).tag(level)
-                                    }
-                                }
-                                .pickerStyle(.segmented)
-                                .labelsHidden()
-                            }
-
-                            Divider()
-
-                            ToggleRow(title: "Remove filler words", isOn: $settings.removeFiller)
-                            ToggleRow(title: "Auto-format punctuation & capitalization", isOn: $settings.autoFormat)
-                        }
+                if draft.postTranscriptionAction == .customKeyCombo {
+                    KeyCaptureField(
+                        label: "Press a key combination",
+                        binding: draft.customPostTranscriptionKey
+                    ) { newBinding in
+                        draft.customPostTranscriptionKey = newBinding
+                        syncDirty()
                     }
+                    .padding(.top, 4)
                 }
+            }
+        }
+    }
 
-                // Custom Dictionary
-                SettingsSection(title: "Custom Dictionary") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Add technical terms, names, and jargon to improve recognition accuracy.")
-                            .font(.system(size: 11))
-                            .foregroundColor(.secondary)
+    // MARK: - Save Footer
 
-                        Text("Manage your dictionary from the Dictionary tab in the sidebar.")
+    private var engineError: String? {
+        if case .failed(let msg) = controller.speechEngineState { return msg }
+        if case .failed(let msg) = controller.textProcessorState { return msg }
+        return nil
+    }
+
+    private var saveFooter: some View {
+        VStack(spacing: 0) {
+            Divider()
+            HStack(spacing: 12) {
+                if isDirty {
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(Color.orange)
+                            .frame(width: 6, height: 6)
+                        Text("Unsaved changes")
                             .font(.system(size: 12))
-                            .foregroundColor(Color(red: 0.357, green: 0.310, blue: 0.914))
+                            .foregroundColor(.secondary)
                     }
+                    .transition(.opacity)
+                } else if let err = engineError {
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(Color.red)
+                            .frame(width: 6, height: 6)
+                        Text(String(err.prefix(60)))
+                            .font(.system(size: 12))
+                            .foregroundColor(.red)
+                            .lineLimit(1)
+                    }
+                    .transition(.opacity)
+                } else {
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(Color.green)
+                            .frame(width: 6, height: 6)
+                        Text("Ready")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                    }
+                    .transition(.opacity)
                 }
 
-                // Post Transcription
-                SettingsSection(title: "After Transcription") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        ForEach(PostTranscriptionAction.allCases, id: \.self) { action in
-                            RadioRow(
-                                title: action.rawValue,
-                                subtitle: action.description,
-                                isSelected: settings.postTranscriptionAction == action
-                            ) {
-                                settings.postTranscriptionAction = action
-                            }
-                        }
+                Spacer()
 
-                        if settings.postTranscriptionAction == .customKeyCombo {
-                            KeyCaptureField(
-                                label: "Press a key combination",
-                                binding: settings.customPostTranscriptionKey
-                            ) { newBinding in
-                                settings.customPostTranscriptionKey = newBinding
-                            }
-                            .padding(.top, 4)
-                        }
+                if !isDirty, engineError != nil {
+                    Button {
+                        Task { await controller.rebuildAndPreload(from: settings) }
+                    } label: {
+                        Text("Retry")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(Color.red)
+                            .cornerRadius(8)
                     }
+                    .buttonStyle(.plain)
+                    .transition(.opacity)
                 }
 
-                // Permissions
-                PermissionsSection()
-
-                Spacer().frame(height: 20)
+                Button {
+                    Task { await save() }
+                } label: {
+                    Text("Save Settings")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(isDirty ? brandColor : Color.secondary.opacity(0.4))
+                        .cornerRadius(8)
+                }
+                .buttonStyle(.plain)
+                .disabled(!isDirty)
+                .animation(.easeInOut(duration: 0.15), value: isDirty)
             }
             .padding(.horizontal, 32)
-            .padding(.top, 24)
+            .padding(.vertical, 14)
+            .background(Color.white)
         }
-        .background(Color.white)
-        .navigationTitle("")
+        .animation(.easeInOut(duration: 0.2), value: isDirty)
+    }
+
+    // MARK: - Loading Overlay
+
+    private var savingOverlay: some View {
+        ZStack {
+            Color.white.opacity(0.85)
+                .ignoresSafeArea()
+
+            VStack(spacing: 16) {
+                ProgressView()
+                    .scaleEffect(1.2)
+                    .progressViewStyle(.circular)
+                    .tint(brandColor)
+
+                Text("Applying settings…")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.primary)
+
+                Text("Loading models into memory")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+            }
+            .padding(32)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(Color.white)
+                    .shadow(color: Color.black.opacity(0.12), radius: 20, x: 0, y: 8)
+            )
+        }
+        .transition(.opacity)
+    }
+
+    // MARK: - Actions
+
+    private func syncDirty() {
+        isDirty = draft.isDirty(comparedTo: settings)
+    }
+
+    private func save() async {
+        withAnimation { isSaving = true }
+
+        draft.apply(to: settings)
+        await controller.rebuildAndPreload(from: settings)
+
+        withAnimation {
+            isSaving = false
+            isDirty = false
+        }
+    }
+
+    /// Called by MainView when user discards — resets draft back to committed settings.
+    func discardChanges() {
+        draft = SettingsDraft(from: settings)
+        isDirty = false
     }
 }
 
@@ -340,7 +611,6 @@ private struct KeyCaptureField: View {
         #if os(macOS)
         isCapturing = true
 
-        // Listen for key events
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { event in
             if event.type == .keyDown {
                 let captured = KeyBinding(
@@ -350,7 +620,7 @@ private struct KeyCaptureField: View {
                 )
                 onCapture(captured)
                 stopCapturing()
-                return nil // consume the event
+                return nil
             } else if event.type == .flagsChanged {
                 let flags = event.modifierFlags.intersection([.command, .option, .control, .shift, .function])
                 if !flags.isEmpty {
@@ -492,5 +762,10 @@ private struct PermissionsSection: View {
 }
 
 #Preview {
-    SettingsView(settings: AppSettings())
+    SettingsView(settings: AppSettings(), isDirty: .constant(false))
+        .environmentObject(ConversationController(
+            speechEngine: AppleSpeechEngine(),
+            textProcessor: nil,
+            settings: AppSettings()
+        ))
 }

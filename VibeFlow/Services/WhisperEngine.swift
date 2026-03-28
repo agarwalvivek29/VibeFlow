@@ -45,6 +45,9 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
     private var contextualTerms: [String] = []
     private let modelVariant: String
 
+    /// Current load state — read by ConversationController after loadModel() completes.
+    private(set) var loadState: ModelLoadState = .idle
+
     // MARK: Level metering
 
     private var pendingLevel: Float = 0
@@ -62,12 +65,16 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
     /// Load the WhisperKit pipeline. Call this before first transcription.
     func loadModel() async {
         #if canImport(WhisperKit)
+        loadState = .loading
         do {
             whisperKit = try await WhisperKit(model: "openai_whisper-\(modelVariant)")
+            loadState = .loaded
         } catch {
+            loadState = .failed(error.localizedDescription)
             print("Failed to load WhisperKit model '\(modelVariant)': \(error)")
         }
         #else
+        loadState = .failed("WhisperKit dependency not installed")
         print("WhisperKit SPM dependency not installed — WhisperEngine unavailable")
         #endif
     }
@@ -83,8 +90,6 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
         audioEngine.inputNode.removeTap(onBus: 0)
         audioEngine.reset()
         stopLevelTimer()
-
-        Thread.sleep(forTimeInterval: 0.05)
 
         audioBuffer = []
         transcript = ""
@@ -161,7 +166,7 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
             let samples = Array(UnsafeBufferPointer(start: channelData[0], count: frames))
             self.audioBuffer.append(contentsOf: samples)
             if self.audioBuffer.count > self.maxBufferSize {
-                self.audioBuffer.removeFirst(self.audioBuffer.count - self.maxBufferSize)
+                self.audioBuffer = Array(self.audioBuffer.suffix(self.maxBufferSize))
             }
             self.updateLevel(from: buffer)
         }
@@ -217,6 +222,10 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
         audioEngine.reset()
         stopLevelTimer()
         audioBuffer = []
+    }
+
+    deinit {
+        print("🗑️ WhisperEngine deallocated — CoreML/ANE model released")
     }
 
     // MARK: - Resampling

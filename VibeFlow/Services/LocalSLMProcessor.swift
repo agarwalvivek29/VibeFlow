@@ -9,6 +9,7 @@
 //   Products: MLXLLM, MLXLMCommon
 
 import Foundation
+import MLX
 import MLXLLM
 import MLXLMCommon
 
@@ -52,11 +53,11 @@ final class LocalSLMProcessor: TextProcessingService {
         )
 
         var output = ""
-        for await generation in stream {
+        outer: for await generation in stream {
             switch generation {
             case .chunk(let chunk):
                 output += chunk
-                if output.count >= maxTokens { break }
+                if output.count >= maxTokens { break outer }
             case .info:
                 break
             default:
@@ -64,12 +65,24 @@ final class LocalSLMProcessor: TextProcessingService {
             }
         }
 
-        return output.trimmingCharacters(in: .whitespacesAndNewlines)
+        let result = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Free intermediate inference buffers (KV cache, activations) after each run.
+        Memory.clearCache()
+        return result
     }
 
     // MARK: - Memory Management
 
     func unload() {
+        print("🗑️ LocalSLMProcessor.unload() — releasing MLX ModelContainer")
         modelContainer = nil
+        // MLX's caching allocator retains Metal GPU buffers in a pool after inference.
+        // clearCache() forces them back to the OS immediately instead of accumulating.
+        Memory.clearCache()
+        print("🗑️ MLX Memory cache cleared — inference buffers returned to OS")
+    }
+
+    deinit {
+        print("🗑️ LocalSLMProcessor deallocated — MLX Metal buffers freed")
     }
 }

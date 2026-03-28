@@ -42,10 +42,10 @@ struct VibeFlowApp: App {
         let settingsInstance = AppSettings()
         print("🚀 Settings loaded")
 
-        let speechEngine: any SpeechRecognitionService = Self.buildSpeechEngine(from: settingsInstance)
+        let speechEngine = ConversationController.buildSpeechEngine(from: settingsInstance)
         print("🚀 Speech engine created: \(settingsInstance.speechEngine.rawValue)")
 
-        let textProcessor: (any TextProcessingService)? = Self.buildTextProcessor(from: settingsInstance)
+        let textProcessor = ConversationController.buildTextProcessor(from: settingsInstance)
         print("🚀 Text processor created: \(settingsInstance.textCleanupEngine.rawValue)")
 
         let controllerInstance = ConversationController(speechEngine: speechEngine, textProcessor: textProcessor, settings: settingsInstance)
@@ -53,26 +53,6 @@ struct VibeFlowApp: App {
         _settings = StateObject(wrappedValue: settingsInstance)
         _controller = StateObject(wrappedValue: controllerInstance)
         print("🚀 VibeFlow init complete")
-    }
-
-    private static func buildSpeechEngine(from settings: AppSettings) -> any SpeechRecognitionService {
-        switch settings.speechEngine {
-        case .apple:
-            return AppleSpeechEngine()
-        case .whisper:
-            return WhisperEngine(modelVariant: settings.whisperModelSize.modelVariant)
-        }
-    }
-
-    private static func buildTextProcessor(from settings: AppSettings) -> (any TextProcessingService)? {
-        guard settings.useLLMProcessing else { return nil }
-        switch settings.textCleanupEngine {
-        case .localSLM:
-            return LocalSLMProcessor()
-        case .remoteLLM:
-            let config = settings.liteLLMConfig ?? LiteLLMConfig(baseURL: URL(string: "http://127.0.0.1:4000")!, apiKey: nil)
-            return RemoteLLMProcessor(client: LiteLLMClient(config: config), model: settings.llmModel)
-        }
     }
 
     var body: some Scene {
@@ -86,7 +66,6 @@ struct VibeFlowApp: App {
                 .onAppear {
                     print("📱 App onAppear - checking permissions before installing monitors...")
 
-                    // Check all permissions
                     let hasAccessibility = PermissionsHelper.checkAccessibilityPermissions()
                     let hasMicrophone = PermissionsHelper.checkMicrophonePermission()
                     let hasSpeech = PermissionsHelper.checkSpeechRecognitionPermission()
@@ -98,81 +77,37 @@ struct VibeFlowApp: App {
 
                     if !hasAccessibility {
                         print("⚠️ WARNING: Accessibility permission NOT granted! Global hotkeys will NOT work!")
-                        print("⚠️ You MUST enable VibeFlow in System Settings → Privacy & Security → Accessibility")
                     }
-
                     if !hasMicrophone {
                         print("⚠️ WARNING: Microphone permission NOT granted!")
                     }
-
                     if !hasSpeech {
                         print("⚠️ WARNING: Speech Recognition permission NOT granted!")
                     }
 
                     print("📱 Installing global monitors now...")
                     controller.installGlobalMonitors()
-
-                    // Pass the model context to the controller
                     controller.modelContainer = sharedModelContainer
 
-                    // Preload models eagerly on app launch
-                    preloadModels(speech: controller.speechEngine, processor: controller.textProcessor)
+                    // Preload models on launch (settings are already committed at this point)
+                    Task {
+                        await controller.rebuildAndPreload(from: settings)
+                    }
 
                     #if os(macOS)
-                    // Initialize the always-visible HUD notch
                     print("📱 Initializing HUD notch...")
                     HUDWindowController.shared.initialize(controller: controller, settings: settings)
                     #endif
 
                     print("📱 onAppear complete")
                 }
-                .onChange(of: settings.speechEngine) { rebuildEngines() }
-                .onChange(of: settings.whisperModelSize) { rebuildEngines() }
-                .onChange(of: settings.textCleanupEngine) { rebuildEngines() }
-                .onChange(of: settings.useLLMProcessing) { rebuildEngines() }
-                .onChange(of: settings.liteLLMBaseURL) { rebuildEngines() }
-                .onChange(of: settings.liteLLMApiKey) { rebuildEngines() }
-                .onChange(of: settings.llmModel) { rebuildEngines() }
         }
         .modelContainer(sharedModelContainer)
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)
         .defaultSize(width: 1000, height: 650)
         .commands {
-            // Remove default window commands for cleaner look
             CommandGroup(replacing: .newItem) { }
-        }
-    }
-
-    private func rebuildEngines() {
-        let newSpeech = Self.buildSpeechEngine(from: settings)
-        let newProcessor = Self.buildTextProcessor(from: settings)
-        print("🔄 Engines updated: speech=\(settings.speechEngine.rawValue), text=\(settings.textCleanupEngine.rawValue), enabled=\(settings.useLLMProcessing)")
-        controller.updateEngines(speech: newSpeech, textProcessor: newProcessor)
-
-        // Eagerly preload models so first transcription isn't slow
-        preloadModels(speech: newSpeech, processor: newProcessor)
-    }
-
-    private func preloadModels(speech: any SpeechRecognitionService, processor: (any TextProcessingService)?) {
-        Task {
-            // Preload Whisper model
-            if let whisper = speech as? WhisperEngine {
-                print("⏳ Preloading Whisper model...")
-                await whisper.loadModel()
-                print("✅ Whisper model preloaded")
-            }
-
-            // Preload SLM model by running a tiny warmup
-            if let slm = processor as? LocalSLMProcessor {
-                print("⏳ Preloading SLM model...")
-                do {
-                    _ = try await slm.process(text: "Hello", systemPrompt: "Reply with OK")
-                    print("✅ SLM model preloaded")
-                } catch {
-                    print("⚠️ SLM preload failed: \(error.localizedDescription)")
-                }
-            }
         }
     }
 }
