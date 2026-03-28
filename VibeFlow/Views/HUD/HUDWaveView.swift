@@ -2,21 +2,25 @@ import SwiftUI
 
 // MARK: - NotchState
 
-enum NotchState {
+enum NotchState: Equatable {
     case idle
     case recording
+    case processing
+    case error(String)
 
     var width: CGFloat {
         switch self {
         case .idle: return 80
         case .recording: return 160
+        case .processing: return 160
+        case .error: return 200
         }
     }
 
     var height: CGFloat {
         switch self {
         case .idle: return 24
-        case .recording: return 28
+        case .recording, .processing, .error: return 28
         }
     }
 }
@@ -58,29 +62,50 @@ struct HUDWaveView: View {
     @ObservedObject var settings: AppSettings
 
     private var notchState: NotchState {
-        controller.isRecording ? .recording : .idle
+        if let err = controller.processingError { return .error(err) }
+        if controller.isProcessing { return .processing }
+        if controller.isRecording { return .recording }
+        return .idle
+    }
+
+    private var pillColor: Color {
+        switch notchState {
+        case .error: return Color.red.opacity(0.85)
+        case .idle: return Color.black.opacity(0.75)
+        default: return Color.black.opacity(0.85)
+        }
     }
 
     var body: some View {
         ZStack {
-            // Background pill
+            // Background pill — red tint on error
             RoundedRectangle(cornerRadius: notchState == .idle ? 12 : 16, style: .continuous)
-                .fill(Color.black.opacity(0.75))
+                .fill(pillColor)
                 .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 4)
 
-            // Content
-            if notchState == .idle {
-                idleContent
-                    .transition(.opacity)
-            } else {
-                recordingContent
-                    .transition(.opacity)
+            // Content — switched by state
+            switch notchState {
+            case .idle:
+                idleContent.transition(.opacity)
+            case .recording:
+                recordingContent.transition(.opacity)
+            case .processing:
+                processingContent.transition(.opacity)
+            case .error(let msg):
+                errorContent(msg).transition(.opacity)
             }
         }
         .frame(width: notchState.width, height: notchState.height)
-        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: notchState == .recording)
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: notchState)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(notchState == .recording ? "Recording in progress" : "Ready to record")
+        .accessibilityLabel({
+            switch notchState {
+            case .idle: return "Ready to record"
+            case .recording: return "Recording in progress"
+            case .processing: return "Processing transcription"
+            case .error(let msg): return "Error: \(msg)"
+            }
+        }())
     }
 
     // MARK: - Idle State Content
@@ -96,22 +121,53 @@ struct HUDWaveView: View {
 
     private var recordingContent: some View {
         HStack(spacing: 6) {
-            // Mic icon
             Image(systemName: "mic.fill")
                 .font(.system(size: 12))
                 .foregroundColor(.white)
 
-            // Waveform
             WaveformBar(level: controller.level)
                 .frame(height: 12)
 
-            // Bolt icon (shown only when LLM processing is disabled)
             if !settings.useLLMProcessing {
                 Image(systemName: "bolt.fill")
                     .font(.system(size: 10))
                     .foregroundColor(.yellow)
                     .transition(.scale.combined(with: .opacity))
             }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+    }
+
+    // MARK: - Processing State Content
+
+    private var processingContent: some View {
+        HStack(spacing: 8) {
+            ProgressView()
+                .scaleEffect(0.65)
+                .progressViewStyle(.circular)
+                .tint(.white)
+
+            Text("Processing…")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.white.opacity(0.8))
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+    }
+
+    // MARK: - Error State Content
+
+    private func errorContent(_ message: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 11))
+                .foregroundColor(.white)
+
+            Text(String(message.prefix(28)))
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(.white.opacity(0.9))
+                .lineLimit(1)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
@@ -257,8 +313,13 @@ final class HUDWindowController: NSWindowController {
         let margin: CGFloat = 12
 
         // Use the state-based size for positioning
-        let isRecording = currentController?.isRecording ?? false
-        let notchState: NotchState = isRecording ? .recording : .idle
+        let notchState: NotchState = {
+            guard let ctrl = currentController else { return .idle }
+            if let err = ctrl.processingError { return .error(err) }
+            if ctrl.isProcessing { return .processing }
+            if ctrl.isRecording { return .recording }
+            return .idle
+        }()
         let size = CGSize(width: notchState.width, height: notchState.height)
 
         // For full-screen apps, use the full screen frame, not visibleFrame
@@ -271,7 +332,7 @@ final class HUDWindowController: NSWindowController {
 
         print("[HUD] Active screen: \(screen.localizedName)")
         print("[HUD] Screen frame: \(screenFrame)")
-        print("[HUD] HUD position: (\(x), \(y)), size: \(size), isRecording: \(isRecording)")
+        print("[HUD] HUD position: (\(x), \(y)), size: \(size), state: \(notchState)")
 
         window.setFrame(NSRect(x: x, y: y, width: size.width, height: size.height), display: true)
     }

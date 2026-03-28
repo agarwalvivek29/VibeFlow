@@ -9,10 +9,23 @@ import AppKit
 
 private let pipelineLog = Logger(subsystem: "com.vibeflow.app", category: "pipeline")
 
+// MARK: - ModelLoadState
+
+enum ModelLoadState: Equatable {
+    case idle
+    case loading
+    case loaded
+    case failed(String)
+}
+
 @MainActor
 final class ConversationController: ObservableObject {
     @Published var isRecording: Bool = false
     @Published var level: Float = 0
+    @Published var isProcessing: Bool = false
+    @Published var processingError: String? = nil
+    @Published var speechEngineState: ModelLoadState = .idle
+    @Published var textProcessorState: ModelLoadState = .idle
 
     private(set) var speechEngine: any SpeechRecognitionService
     private(set) var textProcessor: (any TextProcessingService)?
@@ -79,15 +92,33 @@ final class ConversationController: ObservableObject {
         updateEngines(speech: newSpeech, textProcessor: newProcessor)
 
         if let whisper = newSpeech as? WhisperEngine {
+            speechEngineState = .loading
             pipelineLog.info("⏳ Loading Whisper model...")
             await whisper.loadModel()
-            pipelineLog.info("✅ Whisper model loaded")
+            speechEngineState = whisper.loadState
+            if case .failed(let msg) = whisper.loadState {
+                pipelineLog.error("❌ Whisper model failed: \(msg)")
+            } else {
+                pipelineLog.info("✅ Whisper model loaded")
+            }
+        } else {
+            // Apple Speech is always ready — no download required
+            speechEngineState = .loaded
         }
 
         if let slm = newProcessor as? LocalSLMProcessor {
+            textProcessorState = .loading
             pipelineLog.info("⏳ Loading SLM model...")
-            _ = try? await slm.process(text: "Hello", systemPrompt: "Reply with OK")
-            pipelineLog.info("✅ SLM model loaded")
+            do {
+                _ = try await slm.process(text: "Hello", systemPrompt: "Reply with OK")
+                textProcessorState = .loaded
+                pipelineLog.info("✅ SLM model loaded")
+            } catch {
+                textProcessorState = .failed(error.localizedDescription)
+                pipelineLog.error("❌ SLM model failed: \(error.localizedDescription)")
+            }
+        } else {
+            textProcessorState = newProcessor != nil ? .loaded : .idle
         }
     }
 
@@ -244,6 +275,10 @@ final class ConversationController: ObservableObject {
 
     private func startRecording() {
         guard !isRecording else { return }
+        if case .failed(let msg) = speechEngineState {
+            pipelineLog.error("❌ Cannot record: speech engine failed — \(msg)")
+            return
+        }
         isRecording = true
         do {
             // Fetch dictionary terms for contextual recognition
@@ -367,6 +402,10 @@ final class ConversationController: ObservableObject {
     }
 
     func stopAndProcess() async {
+        isProcessing = true
+        processingError = nil
+        defer { isProcessing = false }
+
         let transcript = await speechEngine.stopAndWaitForFinal()
 
         isRecording = false
@@ -400,6 +439,12 @@ final class ConversationController: ObservableObject {
                 usedLLM = true
             } catch {
                 pipelineLog.error("❌ Text processing failed: \(error.localizedDescription)")
+                let errMsg = "Processing failed: \(error.localizedDescription)"
+                processingError = errMsg
+                Task { @MainActor [weak self] in
+                    try? await Task.sleep(nanoseconds: 3_000_000_000)
+                    if self?.processingError == errMsg { self?.processingError = nil }
+                }
                 pasteToFrontmostApp(cleaned)
                 processedText = cleaned
             }

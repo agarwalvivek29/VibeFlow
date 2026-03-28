@@ -316,6 +316,12 @@ struct SettingsView: View {
 
     // MARK: - Save Footer
 
+    private var engineError: String? {
+        if case .failed(let msg) = controller.speechEngineState { return msg }
+        if case .failed(let msg) = controller.textProcessorState { return msg }
+        return nil
+    }
+
     private var saveFooter: some View {
         VStack(spacing: 0) {
             Divider()
@@ -330,14 +336,46 @@ struct SettingsView: View {
                             .foregroundColor(.secondary)
                     }
                     .transition(.opacity)
+                } else if let err = engineError {
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(Color.red)
+                            .frame(width: 6, height: 6)
+                        Text(String(err.prefix(60)))
+                            .font(.system(size: 12))
+                            .foregroundColor(.red)
+                            .lineLimit(1)
+                    }
+                    .transition(.opacity)
                 } else {
-                    Text("All changes saved")
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondary)
-                        .transition(.opacity)
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(Color.green)
+                            .frame(width: 6, height: 6)
+                        Text("Ready")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                    }
+                    .transition(.opacity)
                 }
 
                 Spacer()
+
+                if !isDirty, engineError != nil {
+                    Button {
+                        Task { await controller.rebuildAndPreload(from: settings) }
+                    } label: {
+                        Text("Retry")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(Color.red)
+                            .cornerRadius(8)
+                    }
+                    .buttonStyle(.plain)
+                    .transition(.opacity)
+                }
 
                 Button {
                     Task { await save() }
