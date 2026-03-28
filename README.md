@@ -7,6 +7,14 @@ Developers who use VibeFlow type less and ship more. Hold a key, speak your thou
 Built by engineers, for engineers. Fully offline. Zero subscriptions.
 
 <p align="center">
+  <a href="https://youtu.be/uCnKX6ldIxQ">
+    <img src="https://img.youtube.com/vi/uCnKX6ldIxQ/maxresdefault.jpg" width="700" alt="VibeFlow Demo — click to watch" />
+  </a>
+  <br/>
+  <sub>▶ Click to watch the demo</sub>
+</p>
+
+<p align="center">
   <img src="docs/screenshots/dashboard.png" width="700" alt="VibeFlow Dashboard — 45 transcriptions, 1099 words, AI-enhanced history" />
 </p>
 
