@@ -107,6 +107,12 @@ struct VibeFlowApp: App {
         .defaultSize(width: 1000, height: 650)
         .commands {
             CommandGroup(replacing: .newItem) { }
+            CommandGroup(after: .windowSize) {
+                Button("Enter Full Screen") {
+                    NSApp.mainWindow?.toggleFullScreen(nil)
+                }
+                .keyboardShortcut("f", modifiers: [.command, .control])
+            }
         }
     }
 }
