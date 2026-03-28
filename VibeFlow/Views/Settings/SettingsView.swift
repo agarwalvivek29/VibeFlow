@@ -108,6 +108,7 @@ struct SettingsView: View {
                 // Main scrollable content
                 ScrollView {
                     VStack(alignment: .leading, spacing: 32) {
+                        appearanceSection
                         PermissionsSection()
                         recordingHotkeySection
                         speechEngineSection
@@ -123,7 +124,7 @@ struct SettingsView: View {
                 // Sticky save footer — always visible
                 saveFooter
             }
-            .background(Color.white)
+            .background(Color(nsColor: .windowBackgroundColor))
 
             // Loading overlay — covers everything while saving
             if isSaving {
@@ -146,6 +147,24 @@ struct SettingsView: View {
     }
 
     // MARK: - Sections
+
+    // MARK: - Appearance
+
+    private var appearanceSection: some View {
+        SettingsSection(title: "Appearance") {
+            Picker("Theme", selection: Binding(
+                get: { settings.appColorScheme },
+                set: { newValue in
+                    DispatchQueue.main.async { self.settings.appColorScheme = newValue }
+                }
+            )) {
+                ForEach(AppSettings.AppColorScheme.allCases, id: \.self) { scheme in
+                    Text(scheme.displayName).tag(scheme)
+                }
+            }
+            .pickerStyle(.segmented)
+        }
+    }
 
     private var recordingHotkeySection: some View {
         SettingsSection(title: "Recording Hotkey") {
@@ -373,7 +392,7 @@ struct SettingsView: View {
             }
             .padding(.horizontal, 32)
             .padding(.vertical, 14)
-            .background(Color.white)
+            .background(Color(nsColor: .windowBackgroundColor))
         }
         .animation(.easeInOut(duration: 0.2), value: isDirty)
     }
@@ -382,7 +401,7 @@ struct SettingsView: View {
 
     private var savingOverlay: some View {
         ZStack {
-            Color.white.opacity(0.85)
+            Color(nsColor: .windowBackgroundColor).opacity(0.85)
                 .ignoresSafeArea()
 
             VStack(spacing: 16) {
@@ -402,7 +421,7 @@ struct SettingsView: View {
             .padding(32)
             .background(
                 RoundedRectangle(cornerRadius: 16)
-                    .fill(Color.white)
+                    .fill(Color(nsColor: .windowBackgroundColor))
                     .shadow(color: Color.black.opacity(0.12), radius: 20, x: 0, y: 8)
             )
         }
@@ -521,7 +540,7 @@ private struct LabeledField: View {
                 .font(.system(size: 13))
                 .padding(.horizontal, 10)
                 .padding(.vertical, 8)
-                .background(Color.white)
+                .background(Color(nsColor: .controlBackgroundColor))
                 .cornerRadius(6)
                 .overlay(
                     RoundedRectangle(cornerRadius: 6)
@@ -575,7 +594,7 @@ private struct KeyCaptureField: View {
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 8)
-                .background(isCapturing ? Color(red: 0.357, green: 0.310, blue: 0.914).opacity(0.06) : Color.white)
+                .background(isCapturing ? Color(red: 0.357, green: 0.310, blue: 0.914).opacity(0.06) : Color(nsColor: .controlBackgroundColor))
                 .cornerRadius(6)
                 .overlay(
                     RoundedRectangle(cornerRadius: 6)
@@ -658,7 +677,7 @@ private struct PermissionRow: View {
                         .animation(.easeInOut(duration: 0.2), value: granted)
 
                     Circle()
-                        .fill(Color.white)
+                        .fill(Color(nsColor: .windowBackgroundColor))
                         .frame(width: 18, height: 18)
                         .offset(x: granted ? 9 : -9)
                         .animation(.easeInOut(duration: 0.2), value: granted)
@@ -666,7 +685,7 @@ private struct PermissionRow: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .background(Color.white)
+            .background(Color(nsColor: .controlBackgroundColor))
             .cornerRadius(8)
         }
         .buttonStyle(.plain)
