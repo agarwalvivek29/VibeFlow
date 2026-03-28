@@ -14,6 +14,24 @@ Built by engineers, for engineers. Fully offline. Zero subscriptions.
   </a>
 </p>
 
+## 📥 Installation
+
+> **No Apple Developer Certificate** — VibeFlow is distributed unsigned. macOS will block it on first launch. Here's how to get past that in ~30 seconds:
+
+1. **Download** the `.dmg` from [vibeflow.agarwalvivek.com](https://vibeflow.agarwalvivek.com) → **Latest Release**
+2. Open the `.dmg` and drag **VibeFlow** into your **Applications** folder
+3. Double-click VibeFlow in Applications — macOS will show *"VibeFlow cannot be opened because it is from an unidentified developer"*. Click **Cancel** (not Move to Trash)
+4. Open **System Settings → Privacy & Security**, scroll down to the Security section, and click **"Open Anyway"** next to the VibeFlow message
+5. Click **Open** on the confirmation dialog — VibeFlow launches ✅
+6. Grant the required permissions when prompted:
+   - **Accessibility** — needed for the global hotkey to work across all apps
+   - **Microphone** — needed for recording
+   - **Speech Recognition** — needed if using the Apple Speech engine
+
+You only need to do steps 3–5 once. After that, VibeFlow opens normally.
+
+---
+
 ## 🤔 Why VibeFlow?
 
 You think at ~400 words per minute. You type at ~80. That's an **80% bottleneck** between your brain and your code. VibeFlow obliterates it. 💥
