@@ -476,11 +476,19 @@ final class ConversationController: ObservableObject {
         guard let modelContainer = modelContainer else { return }
 
         let wordCount = processedText.split(separator: " ").count
+        let activeModel: String
+        if !usedLLM {
+            activeModel = ""
+        } else if settings.textCleanupEngine == .localSLM {
+            activeModel = "Qwen2.5-0.5B"
+        } else {
+            activeModel = settings.llmModel
+        }
         let entry = TranscriptionEntry(
             rawTranscript: rawTranscript,
             processedText: processedText,
             timestamp: Date(),
-            llmModel: settings.llmModel,
+            llmModel: activeModel,
             writingStyle: settings.writingStyle.rawValue,
             usedLLMProcessing: usedLLM,
             wordCount: wordCount,
