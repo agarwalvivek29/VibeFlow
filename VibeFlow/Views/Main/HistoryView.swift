@@ -16,6 +16,7 @@ struct HistoryView: View {
     @Query(sort: \TranscriptionEntry.timestamp, order: .reverse) private var entries: [TranscriptionEntry]
     @State private var searchText = ""
     @State private var copiedEntryId: UUID?
+    @State private var selectedEntry: TranscriptionEntry?
 
     private var filteredEntries: [TranscriptionEntry] {
         guard !searchText.isEmpty else { return entries }
@@ -65,30 +66,34 @@ struct HistoryView: View {
                 ScrollView {
                     VStack(spacing: 0) {
                         ForEach(filteredEntries) { entry in
-                            TranscriptRow(
-                                entry: entry,
-                                isCopied: copiedEntryId == entry.id,
-                                onCopy: {
-                                    copyToClipboard(entry.processedText)
-                                    copiedEntryId = entry.id
-
-                                    // Reset copied state after 2 seconds
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                                        if copiedEntryId == entry.id {
-                                            copiedEntryId = nil
+                            Button { selectedEntry = entry } label: {
+                                TranscriptRow(
+                                    entry: entry,
+                                    isCopied: copiedEntryId == entry.id,
+                                    onCopy: {
+                                        copyToClipboard(entry.processedText)
+                                        copiedEntryId = entry.id
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                            if copiedEntryId == entry.id { copiedEntryId = nil }
                                         }
-                                    }
-                                },
-                                onDelete: {
-                                    deleteEntry(entry)
-                                }
-                            )
+                                    },
+                                    onDelete: { deleteEntry(entry) }
+                                )
+                            }
+                            .buttonStyle(.plain)
 
                             Divider()
                                 .padding(.horizontal, 32)
                         }
                     }
                     .padding(.top, 12)
+                }
+                .sheet(item: $selectedEntry) { entry in
+                    HistoryDetailView(entry: entry, onDelete: {
+                        deleteEntry(entry)
+                        selectedEntry = nil
+                    })
+                    .frame(minWidth: 480, minHeight: 360)
                 }
             }
         }
@@ -152,7 +157,7 @@ struct TranscriptRow: View {
                 Text(entry.processedText)
                     .font(.system(size: 13))
                     .foregroundColor(.primary)
-                    .lineLimit(3)
+                    .lineLimit(5)
                     .textSelection(.enabled)
 
                 // Metadata
@@ -170,6 +175,15 @@ struct TranscriptRow: View {
                     Text("\(entry.wordCount) words")
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
+
+                    if let wpm = entry.wordsPerMinute {
+                        Text("·")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                        Text("\(wpm) wpm")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
 
                     Text(entry.writingStyle)
                         .font(.system(size: 11))

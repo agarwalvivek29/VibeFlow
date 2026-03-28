@@ -214,10 +214,17 @@ struct DashboardView: View {
 
     // MARK: - Stats
 
+    private var avgWPM: Int {
+        let valid = entries.compactMap(\.wordsPerMinute)
+        guard !valid.isEmpty else { return 0 }
+        return valid.reduce(0, +) / valid.count
+    }
+
     private var statsRow: some View {
         HStack(spacing: 16) {
             StatBox(label: "Transcriptions", value: "\(entries.count)")
             StatBox(label: "Words", value: "\(totalWords)")
+            StatBox(label: "Avg WPM", value: avgWPM > 0 ? "\(avgWPM)" : "—")
         }
     }
 
