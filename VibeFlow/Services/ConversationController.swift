@@ -39,6 +39,58 @@ final class ConversationController: ObservableObject {
         self.textProcessor = textProcessor
     }
 
+    // MARK: - Engine Factory
+
+    static func buildSpeechEngine(from settings: AppSettings) -> any SpeechRecognitionService {
+        switch settings.speechEngine {
+        case .apple:
+            return AppleSpeechEngine()
+        case .whisper:
+            return WhisperEngine(modelVariant: settings.whisperModelSize.modelVariant)
+        }
+    }
+
+    static func buildTextProcessor(from settings: AppSettings) -> (any TextProcessingService)? {
+        guard settings.useLLMProcessing else { return nil }
+        switch settings.textCleanupEngine {
+        case .localSLM:
+            return LocalSLMProcessor()
+        case .remoteLLM:
+            let config = settings.liteLLMConfig ?? LiteLLMConfig(
+                baseURL: URL(string: "http://127.0.0.1:4000")!,
+                apiKey: nil
+            )
+            return RemoteLLMProcessor(client: LiteLLMClient(config: config), model: settings.llmModel)
+        }
+    }
+
+    /// Rebuild engines and eagerly preload models. Called from the Settings Save button.
+    /// Runs async so callers can show a loading indicator while this completes.
+    func rebuildAndPreload(from settings: AppSettings) async {
+        // Explicitly unload old SLM before replacing — releases Metal/MLX buffers
+        if let oldSLM = textProcessor as? LocalSLMProcessor {
+            oldSLM.unload()
+        }
+
+        let newSpeech = Self.buildSpeechEngine(from: settings)
+        let newProcessor = Self.buildTextProcessor(from: settings)
+
+        pipelineLog.info("🔄 Rebuilding engines: speech=\(settings.speechEngine.rawValue) text=\(settings.textCleanupEngine.rawValue) llm=\(settings.useLLMProcessing)")
+        updateEngines(speech: newSpeech, textProcessor: newProcessor)
+
+        if let whisper = newSpeech as? WhisperEngine {
+            pipelineLog.info("⏳ Loading Whisper model...")
+            await whisper.loadModel()
+            pipelineLog.info("✅ Whisper model loaded")
+        }
+
+        if let slm = newProcessor as? LocalSLMProcessor {
+            pipelineLog.info("⏳ Loading SLM model...")
+            _ = try? await slm.process(text: "Hello", systemPrompt: "Reply with OK")
+            pipelineLog.info("✅ SLM model loaded")
+        }
+    }
+
     func installGlobalMonitors() {
         #if os(macOS)
         removeGlobalMonitors()

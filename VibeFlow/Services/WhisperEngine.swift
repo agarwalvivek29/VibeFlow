@@ -84,8 +84,6 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
         audioEngine.reset()
         stopLevelTimer()
 
-        Thread.sleep(forTimeInterval: 0.05)
-
         audioBuffer = []
         transcript = ""
 
@@ -161,7 +159,7 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
             let samples = Array(UnsafeBufferPointer(start: channelData[0], count: frames))
             self.audioBuffer.append(contentsOf: samples)
             if self.audioBuffer.count > self.maxBufferSize {
-                self.audioBuffer.removeFirst(self.audioBuffer.count - self.maxBufferSize)
+                self.audioBuffer = Array(self.audioBuffer.suffix(self.maxBufferSize))
             }
             self.updateLevel(from: buffer)
         }
@@ -217,6 +215,10 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
         audioEngine.reset()
         stopLevelTimer()
         audioBuffer = []
+    }
+
+    deinit {
+        print("🗑️ WhisperEngine deallocated — CoreML/ANE model released")
     }
 
     // MARK: - Resampling

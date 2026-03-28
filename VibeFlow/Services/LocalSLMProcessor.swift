@@ -52,11 +52,11 @@ final class LocalSLMProcessor: TextProcessingService {
         )
 
         var output = ""
-        for await generation in stream {
+        outer: for await generation in stream {
             switch generation {
             case .chunk(let chunk):
                 output += chunk
-                if output.count >= maxTokens { break }
+                if output.count >= maxTokens { break outer }
             case .info:
                 break
             default:
@@ -70,6 +70,11 @@ final class LocalSLMProcessor: TextProcessingService {
     // MARK: - Memory Management
 
     func unload() {
+        print("🗑️ LocalSLMProcessor.unload() — releasing MLX ModelContainer")
         modelContainer = nil
+    }
+
+    deinit {
+        print("🗑️ LocalSLMProcessor deallocated — MLX Metal buffers freed")
     }
 }
