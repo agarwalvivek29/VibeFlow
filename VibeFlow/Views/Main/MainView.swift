@@ -33,8 +33,8 @@ struct MainView: View {
             detailView
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(width: 1000, height: 650)
-        .background(Color.white)
+        .frame(minWidth: 1000, minHeight: 650)
+        .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
             print("📱 MainView onAppear - ensuring monitors are installed...")
             controller.installGlobalMonitors()

@@ -60,8 +60,7 @@ struct VibeFlowApp: App {
             RootView()
                 .environmentObject(settings)
                 .environmentObject(controller)
-                .preferredColorScheme(.light)
-                .background(Color.white)
+                .preferredColorScheme(settings.appColorScheme.swiftUIValue)
                 .frame(minWidth: 1000, minHeight: 650)
                 .onAppear {
                     print("📱 App onAppear - checking permissions before installing monitors...")
@@ -104,7 +103,7 @@ struct VibeFlowApp: App {
         }
         .modelContainer(sharedModelContainer)
         .windowStyle(.hiddenTitleBar)
-        .windowResizability(.contentSize)
+        .windowResizability(.automatic)
         .defaultSize(width: 1000, height: 650)
         .commands {
             CommandGroup(replacing: .newItem) { }

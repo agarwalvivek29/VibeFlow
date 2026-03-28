@@ -42,7 +42,7 @@ struct DictionaryView: View {
                 termsList
             }
         }
-        .background(Color.white)
+        .background(Color(nsColor: .windowBackgroundColor))
         .navigationTitle("")
     }
 
@@ -103,7 +103,7 @@ struct DictionaryView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(Color(red: 0.98, green: 0.98, blue: 0.99))
+        .background(Color(nsColor: .controlBackgroundColor))
         .padding(.horizontal, 32)
         .padding(.top, 8)
     }
@@ -240,7 +240,7 @@ struct DictionaryRow: View {
         }
         .padding(.horizontal, 32)
         .padding(.vertical, 12)
-        .background(Color.white)
+        .background(Color(nsColor: .windowBackgroundColor))
         .alert("Delete Term?", isPresented: $showDeleteConfirmation) {
             Button("Cancel", role: .cancel) { }
             Button("Delete", role: .destructive) { onDelete() }

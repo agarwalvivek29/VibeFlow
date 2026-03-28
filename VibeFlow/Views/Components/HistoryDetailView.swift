@@ -87,11 +87,6 @@ struct HistoryDetailView: View {
                         Text(entry.writingStyle)
                     }
                     GridRow {
-                        Text("Formality:")
-                            .foregroundStyle(.secondary)
-                        Text(entry.formality)
-                    }
-                    GridRow {
                         Text("LLM Processing:")
                             .foregroundStyle(.secondary)
                         Text(entry.usedLLMProcessing ? "Yes" : "No")
@@ -100,6 +95,16 @@ struct HistoryDetailView: View {
                         Text("Word Count:")
                             .foregroundStyle(.secondary)
                         Text("\(entry.wordCount)")
+                    }
+                    GridRow {
+                        Text("Speed:")
+                            .foregroundStyle(.secondary)
+                        Text(entry.wordsPerMinute.map { "\($0) wpm" } ?? "—")
+                    }
+                    GridRow {
+                        Text("Duration:")
+                            .foregroundStyle(.secondary)
+                        Text(entry.durationSeconds > 0 ? "\(Int(entry.durationSeconds))s" : "—")
                     }
                 }
                 .font(.callout)
@@ -133,7 +138,6 @@ struct HistoryDetailView: View {
             processedText: "Hello, this is a test transcription with some words.",
             llmModel: "gpt-4o-mini",
             writingStyle: "Professional",
-            formality: "Neutral",
             usedLLMProcessing: true,
             wordCount: 9
         ),
