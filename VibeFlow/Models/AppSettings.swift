@@ -69,6 +69,10 @@ final class AppSettings: ObservableObject {
         didSet { save() }
     }
 
+    @Published var appColorScheme: AppColorScheme {
+        didSet { save() }
+    }
+
     // Computed property for active recording key
     var activeRecordingKey: KeyBinding {
         switch recordingKeyPreset {
@@ -109,7 +113,29 @@ final class AppSettings: ObservableObject {
         }
     }
 
-enum SpeechEngine: String, CaseIterable, Codable {
+enum AppColorScheme: String, CaseIterable, Codable {
+        case system = "system"
+        case light  = "light"
+        case dark   = "dark"
+
+        var displayName: String {
+            switch self {
+            case .system: return "System"
+            case .light:  return "Light"
+            case .dark:   return "Dark"
+            }
+        }
+
+        var swiftUIValue: ColorScheme? {
+            switch self {
+            case .system: return nil
+            case .light:  return .light
+            case .dark:   return .dark
+            }
+        }
+    }
+
+    enum SpeechEngine: String, CaseIterable, Codable {
         case apple = "Apple Speech"
         case whisper = "Whisper (Local)"
     }
@@ -178,6 +204,7 @@ private static let removeFillerKey = "removeFiller"
     private static let speechEngineKey = "speechEngine"
     private static let textCleanupEngineKey = "textCleanupEngine"
     private static let whisperModelSizeKey = "whisperModelSize"
+    private static let appColorSchemeKey = "appColorScheme"
 
     init() {
         self.liteLLMBaseURL = Self.defaults.string(forKey: Self.baseURLKey) ?? "http://127.0.0.1:4000"
@@ -245,6 +272,13 @@ self.removeFiller = Self.defaults.bool(forKey: Self.removeFillerKey) || !Self.de
         } else {
             self.whisperModelSize = .tiny
         }
+
+        if let raw = Self.defaults.string(forKey: Self.appColorSchemeKey),
+           let scheme = AppColorScheme(rawValue: raw) {
+            self.appColorScheme = scheme
+        } else {
+            self.appColorScheme = .system
+        }
     }
 
     private func save() {
@@ -278,6 +312,7 @@ self.removeFiller = Self.defaults.bool(forKey: Self.removeFillerKey) || !Self.de
         Self.defaults.set(speechEngine.rawValue, forKey: Self.speechEngineKey)
         Self.defaults.set(textCleanupEngine.rawValue, forKey: Self.textCleanupEngineKey)
         Self.defaults.set(whisperModelSize.rawValue, forKey: Self.whisperModelSizeKey)
+        Self.defaults.set(appColorScheme.rawValue, forKey: Self.appColorSchemeKey)
     }
 
     func buildSystemPrompt() -> String {
