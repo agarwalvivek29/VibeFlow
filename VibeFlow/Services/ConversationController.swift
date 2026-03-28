@@ -37,6 +37,7 @@ final class ConversationController: ObservableObject {
     private var localKeyDownMonitor: Any?
     private var localKeyUpMonitor: Any?
     private var previousModifierFlags: NSEvent.ModifierFlags = []
+    private var recordingStartedAt: Date?
 
     init(speechEngine: any SpeechRecognitionService, textProcessor: (any TextProcessingService)?, settings: AppSettings) {
         self.speechEngine = speechEngine
@@ -280,6 +281,7 @@ final class ConversationController: ObservableObject {
             return
         }
         isRecording = true
+        recordingStartedAt = Date()
         do {
             // Fetch dictionary terms for contextual recognition
             var terms: [String] = []
@@ -406,6 +408,13 @@ final class ConversationController: ObservableObject {
         processingError = nil
         defer { isProcessing = false }
 
+        // Grace period: let the audio engine capture the last syllables before stopping.
+        // Without this, releasing the key cuts off trailing words.
+        try? await Task.sleep(nanoseconds: 300_000_000) // 300ms
+
+        let recordingDuration = recordingStartedAt.map { Date().timeIntervalSince($0) } ?? 0
+        recordingStartedAt = nil
+
         let transcript = await speechEngine.stopAndWaitForFinal()
 
         isRecording = false
@@ -458,11 +467,12 @@ final class ConversationController: ObservableObject {
         saveToHistory(
             rawTranscript: transcript,
             processedText: processedText,
-            usedLLM: usedLLM
+            usedLLM: usedLLM,
+            duration: recordingDuration
         )
     }
 
-    private func saveToHistory(rawTranscript: String, processedText: String, usedLLM: Bool) {
+    private func saveToHistory(rawTranscript: String, processedText: String, usedLLM: Bool, duration: TimeInterval) {
         guard let modelContainer = modelContainer else { return }
 
         let wordCount = processedText.split(separator: " ").count
@@ -472,9 +482,9 @@ final class ConversationController: ObservableObject {
             timestamp: Date(),
             llmModel: settings.llmModel,
             writingStyle: settings.writingStyle.rawValue,
-            formality: settings.formality.rawValue,
             usedLLMProcessing: usedLLM,
-            wordCount: wordCount
+            wordCount: wordCount,
+            durationSeconds: duration
         )
 
         let context = ModelContext(modelContainer)

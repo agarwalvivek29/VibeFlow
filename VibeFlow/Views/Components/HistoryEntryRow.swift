@@ -49,7 +49,6 @@ struct HistoryEntryRow: View {
                 processedText: "Hello, this is a test transcription with some words.",
                 llmModel: "gpt-4o-mini",
                 writingStyle: "Professional",
-                formality: "Neutral",
                 usedLLMProcessing: true,
                 wordCount: 9
             ),
@@ -62,7 +61,6 @@ struct HistoryEntryRow: View {
                 timestamp: Date().addingTimeInterval(-3600),
                 llmModel: "gpt-4o-mini",
                 writingStyle: "Casual",
-                formality: "Informal",
                 usedLLMProcessing: false,
                 wordCount: 2
             ),

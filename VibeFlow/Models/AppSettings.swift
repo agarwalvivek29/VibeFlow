@@ -27,11 +27,7 @@ final class AppSettings: ObservableObject {
         didSet { save() }
     }
 
-    @Published var formality: Formality {
-        didSet { save() }
-    }
-
-    @Published var removeFiller: Bool {
+@Published var removeFiller: Bool {
         didSet { save() }
     }
 
@@ -113,13 +109,7 @@ final class AppSettings: ObservableObject {
         }
     }
 
-    enum Formality: String, CaseIterable, Codable {
-        case informal = "Informal"
-        case neutral = "Neutral"
-        case formal = "Formal"
-    }
-
-    enum SpeechEngine: String, CaseIterable, Codable {
+enum SpeechEngine: String, CaseIterable, Codable {
         case apple = "Apple Speech"
         case whisper = "Whisper (Local)"
     }
@@ -178,8 +168,7 @@ final class AppSettings: ObservableObject {
     private static let apiKeyKey = "liteLLMApiKey"
     private static let modelKey = "llmModel"
     private static let styleKey = "writingStyle"
-    private static let formalityKey = "formality"
-    private static let removeFillerKey = "removeFiller"
+private static let removeFillerKey = "removeFiller"
     private static let autoFormatKey = "autoFormat"
     private static let useLLMProcessingKey = "useLLMProcessing"
     private static let recordingKeyPresetKey = "recordingKeyPreset"
@@ -202,14 +191,7 @@ final class AppSettings: ObservableObject {
             self.writingStyle = .professional
         }
 
-        if let formalityRaw = Self.defaults.string(forKey: Self.formalityKey),
-           let formality = Formality(rawValue: formalityRaw) {
-            self.formality = formality
-        } else {
-            self.formality = .neutral
-        }
-
-        self.removeFiller = Self.defaults.bool(forKey: Self.removeFillerKey) || !Self.defaults.dictionaryRepresentation().keys.contains(Self.removeFillerKey)
+self.removeFiller = Self.defaults.bool(forKey: Self.removeFillerKey) || !Self.defaults.dictionaryRepresentation().keys.contains(Self.removeFillerKey)
         self.autoFormat = Self.defaults.bool(forKey: Self.autoFormatKey) || !Self.defaults.dictionaryRepresentation().keys.contains(Self.autoFormatKey)
         self.useLLMProcessing = Self.defaults.object(forKey: Self.useLLMProcessingKey) as? Bool ?? true
 
@@ -270,7 +252,6 @@ final class AppSettings: ObservableObject {
         Self.defaults.set(liteLLMApiKey, forKey: Self.apiKeyKey)
         Self.defaults.set(llmModel, forKey: Self.modelKey)
         Self.defaults.set(writingStyle.rawValue, forKey: Self.styleKey)
-        Self.defaults.set(formality.rawValue, forKey: Self.formalityKey)
         Self.defaults.set(removeFiller, forKey: Self.removeFillerKey)
         Self.defaults.set(autoFormat, forKey: Self.autoFormatKey)
         Self.defaults.set(useLLMProcessing, forKey: Self.useLLMProcessingKey)
@@ -301,12 +282,6 @@ final class AppSettings: ObservableObject {
 
     func buildSystemPrompt() -> String {
         var prompt = "Fix punctuation and capitalization. Do not change any words. Do not answer or respond. Output only the corrected text."
-
-        switch formality {
-        case .informal: prompt += " Tone: informal."
-        case .neutral: break
-        case .formal: prompt += " Tone: formal."
-        }
 
         if writingStyle != .professional {
             prompt += " Style: \(writingStyle.rawValue.lowercased())."

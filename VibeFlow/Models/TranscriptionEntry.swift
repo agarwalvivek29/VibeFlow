@@ -16,9 +16,9 @@ final class TranscriptionEntry {
     var timestamp: Date
     var llmModel: String
     var writingStyle: String
-    var formality: String
     var usedLLMProcessing: Bool
     var wordCount: Int
+    var durationSeconds: Double
 
     init(
         id: UUID = UUID(),
@@ -27,9 +27,9 @@ final class TranscriptionEntry {
         timestamp: Date = Date(),
         llmModel: String,
         writingStyle: String,
-        formality: String,
         usedLLMProcessing: Bool,
-        wordCount: Int
+        wordCount: Int,
+        durationSeconds: Double = 0
     ) {
         self.id = id
         self.rawTranscript = rawTranscript
@@ -37,9 +37,9 @@ final class TranscriptionEntry {
         self.timestamp = timestamp
         self.llmModel = llmModel
         self.writingStyle = writingStyle
-        self.formality = formality
         self.usedLLMProcessing = usedLLMProcessing
         self.wordCount = wordCount
+        self.durationSeconds = durationSeconds
     }
 }
 
@@ -51,6 +51,11 @@ extension TranscriptionEntry {
             return text
         }
         return String(text.prefix(maxLength)) + "..."
+    }
+
+    var wordsPerMinute: Int? {
+        guard durationSeconds > 5, wordCount > 0 else { return nil }
+        return Int((Double(wordCount) / durationSeconds) * 60)
     }
 
     var relativeTimeString: String {

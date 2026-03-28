@@ -24,7 +24,6 @@ private struct SettingsDraft {
     var liteLLMApiKey: String
     var llmModel: String
     var writingStyle: AppSettings.WritingStyle
-    var formality: AppSettings.Formality
     var removeFiller: Bool
     var autoFormat: Bool
     var recordingKeyPreset: RecordingKeyPreset
@@ -41,7 +40,6 @@ private struct SettingsDraft {
         liteLLMApiKey = settings.liteLLMApiKey
         llmModel = settings.llmModel
         writingStyle = settings.writingStyle
-        formality = settings.formality
         removeFiller = settings.removeFiller
         autoFormat = settings.autoFormat
         recordingKeyPreset = settings.recordingKeyPreset
@@ -59,7 +57,6 @@ private struct SettingsDraft {
         liteLLMApiKey != settings.liteLLMApiKey ||
         llmModel != settings.llmModel ||
         writingStyle != settings.writingStyle ||
-        formality != settings.formality ||
         removeFiller != settings.removeFiller ||
         autoFormat != settings.autoFormat ||
         recordingKeyPreset != settings.recordingKeyPreset ||
@@ -77,7 +74,6 @@ private struct SettingsDraft {
         settings.liteLLMApiKey = liteLLMApiKey
         settings.llmModel = llmModel
         settings.writingStyle = writingStyle
-        settings.formality = formality
         settings.removeFiller = removeFiller
         settings.autoFormat = autoFormat
         settings.recordingKeyPreset = recordingKeyPreset
@@ -112,12 +108,12 @@ struct SettingsView: View {
                 // Main scrollable content
                 ScrollView {
                     VStack(alignment: .leading, spacing: 32) {
+                        PermissionsSection()
                         recordingHotkeySection
                         speechEngineSection
                         textCleanupSection
                         customDictionarySection
                         afterTranscriptionSection
-                        PermissionsSection()
                         Spacer().frame(height: 20)
                     }
                     .padding(.horizontal, 32)
@@ -143,7 +139,6 @@ struct SettingsView: View {
         .onChange(of: draft.liteLLMApiKey)          { syncDirty() }
         .onChange(of: draft.llmModel)               { syncDirty() }
         .onChange(of: draft.writingStyle)           { syncDirty() }
-        .onChange(of: draft.formality)              { syncDirty() }
         .onChange(of: draft.removeFiller)           { syncDirty() }
         .onChange(of: draft.autoFormat)             { syncDirty() }
         .onChange(of: draft.recordingKeyPreset)     { syncDirty() }
@@ -246,22 +241,6 @@ struct SettingsView: View {
                                 draft.writingStyle = style
                             }
                         }
-                    }
-
-                    Divider()
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Formality")
-                            .font(.system(size: 11))
-                            .foregroundColor(.secondary)
-
-                        Picker("Formality", selection: $draft.formality) {
-                            ForEach(AppSettings.Formality.allCases, id: \.self) { level in
-                                Text(level.rawValue).tag(level)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
                     }
 
                     Divider()
