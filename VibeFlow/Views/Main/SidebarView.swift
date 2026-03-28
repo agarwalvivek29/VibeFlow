@@ -18,16 +18,23 @@ struct SidebarView: View {
             Spacer()
             statusFooter
         }
-        .background(Color.white)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 
     private var brandHeader: some View {
-        HStack(spacing: 0) {
-            Text("Vibe")
-                .font(.system(size: 18, weight: .semibold))
-            Text("Flow")
-                .font(.system(size: 18, weight: .light))
-                .foregroundColor(.secondary)
+        HStack(spacing: 10) {
+            Image(nsImage: NSImage(named: "AppIcon") ?? NSImage())
+                .resizable()
+                .frame(width: 34, height: 34)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+
+            HStack(spacing: 0) {
+                Text("Vibe")
+                    .font(.system(size: 18, weight: .semibold))
+                Text("Flow")
+                    .font(.system(size: 18, weight: .light))
+                    .foregroundColor(.secondary)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 24)
@@ -79,7 +86,7 @@ struct SidebarView: View {
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 18)
-        .background(Color(red: 0.98, green: 0.98, blue: 0.99))
+        .background(Color(nsColor: .controlBackgroundColor))
     }
 }
 

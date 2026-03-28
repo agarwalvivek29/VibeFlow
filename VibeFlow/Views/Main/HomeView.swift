@@ -63,7 +63,7 @@ struct DashboardView: View {
             }
             .padding(32)
         }
-        .background(Color.white)
+        .background(Color(nsColor: .windowBackgroundColor))
         .navigationTitle("")
         .onAppear { checkPermissions() }
     }
@@ -208,7 +208,7 @@ struct DashboardView: View {
             }
         }
         .padding(20)
-        .background(Color(red: 0.98, green: 0.98, blue: 0.99))
+        .background(Color(nsColor: .controlBackgroundColor))
         .cornerRadius(10)
     }
 
@@ -275,7 +275,7 @@ struct DashboardView: View {
                         }
                     }
                 }
-                .background(Color(red: 0.98, green: 0.98, blue: 0.99))
+                .background(Color(nsColor: .controlBackgroundColor))
                 .cornerRadius(8)
             }
         }
@@ -350,7 +350,7 @@ private struct StatBox: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 16)
-        .background(Color(red: 0.98, green: 0.98, blue: 0.99))
+        .background(Color(nsColor: .controlBackgroundColor))
         .cornerRadius(10)
     }
 }

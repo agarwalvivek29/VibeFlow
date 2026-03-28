@@ -94,7 +94,7 @@ private struct ModelRow: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .background(Color.white)
+        .background(Color(nsColor: .controlBackgroundColor))
         .cornerRadius(8)
         .alert("Delete Model", isPresented: $showDeleteConfirmation) {
             Button("Cancel", role: .cancel) {}
