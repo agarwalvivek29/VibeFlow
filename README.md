@@ -8,10 +8,14 @@ Built by engineers, for engineers. Fully offline. Zero subscriptions.
 
 <p align="center">
   <a href="https://youtu.be/uCnKX6ldIxQ">
+    <img src="https://img.shields.io/badge/▶%20WATCH%20DEMO-FF0000?style=for-the-badge&logo=youtube&logoColor=white" alt="Watch Demo" />
+  </a>
+
+  <br/><br/>
+
+  <a href="https://youtu.be/uCnKX6ldIxQ">
     <img src="https://img.youtube.com/vi/uCnKX6ldIxQ/maxresdefault.jpg" width="700" alt="VibeFlow Demo — click to watch" />
   </a>
-  <br/>
-  <sub>▶ Click to watch the demo</sub>
 </p>
 
 <p align="center">
