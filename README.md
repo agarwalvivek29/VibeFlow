@@ -18,19 +18,6 @@ Built by engineers, for engineers. Fully offline. Zero subscriptions.
   </a>
 </p>
 
-<p align="center">
-  <img src="docs/screenshots/dashboard.png" width="700" alt="VibeFlow Dashboard — 45 transcriptions, 1099 words, AI-enhanced history" />
-</p>
-
-<p align="center">
-  <img src="docs/screenshots/settings.png" width="340" alt="Engine Selection — Apple Speech or Whisper, Local SLM or Remote LLM" />
-  <img src="docs/screenshots/dictionary.png" width="340" alt="Custom Dictionary — add technical terms for better recognition" />
-</p>
-
-<p align="center">
-  <img src="docs/screenshots/terminal.png" width="700" alt="Built, released, and shipped from the terminal" />
-</p>
-
 ## 🤔 Why VibeFlow?
 
 You think at ~400 words per minute. You type at ~80. That's an **80% bottleneck** between your brain and your code. VibeFlow obliterates it. 💥
