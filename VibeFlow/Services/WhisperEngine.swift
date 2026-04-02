@@ -35,7 +35,7 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
     private let audioEngine = AVAudioEngine()
     private var audioBuffer: [Float] = []
     private var deviceSampleRate: Double = 16000
-    private let maxBufferSize = 14_400_000 // 5 minutes at 48 kHz
+    private let maxBufferSize = 86_400_000 // 30 minutes at 48 kHz
 
     // MARK: Whisper
 
@@ -201,8 +201,27 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
             let options = DecodingOptions(
                 language: "en"
             )
-            let results: [TranscriptionResult] = try await kit.transcribe(audioArray: samples, decodeOptions: options)
-            let text = results.map(\.text).joined(separator: " ")
+
+            // Transcribe in 30-second chunks to keep memory bounded and avoid
+            // model-level sequence length issues with very long audio.
+            let chunkSize = 30 * 16000 // 30 seconds at 16 kHz
+            var allText: [String] = []
+
+            if samples.count <= chunkSize {
+                let results: [TranscriptionResult] = try await kit.transcribe(audioArray: samples, decodeOptions: options)
+                allText.append(results.map(\.text).joined(separator: " "))
+            } else {
+                var offset = 0
+                while offset < samples.count {
+                    let end = min(offset + chunkSize, samples.count)
+                    let chunk = Array(samples[offset..<end])
+                    let results: [TranscriptionResult] = try await kit.transcribe(audioArray: chunk, decodeOptions: options)
+                    allText.append(results.map(\.text).joined(separator: " "))
+                    offset = end
+                }
+            }
+
+            let text = allText.joined(separator: " ")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             transcript = text
             return text
