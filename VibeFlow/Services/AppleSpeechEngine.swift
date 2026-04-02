@@ -32,6 +32,9 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
     private var currentContextualTerms: [String] = []
     private let maxChunkDuration: TimeInterval = 50
 
+    // Track recording duration for scaling the final timeout
+    private var recordingStartedAt: Date?
+
     func requestPermissions() async throws {
         // Permissions are now handled by PermissionsHelper
         // This method is kept for compatibility
@@ -67,6 +70,7 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
         accumulatedTranscript = ""
         currentChunkTranscript = ""
         currentContextualTerms = contextualTerms
+        recordingStartedAt = Date()
 
         guard let recognizer = speechRecognizer, recognizer.isAvailable else {
             AppLogger.audio.error("recording outcome=error engine=apple reason=recognizer_unavailable")
@@ -273,8 +277,12 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
             //    and eventually call back with isFinal = true
             self.recognitionRequest?.endAudio()
 
-            // 3. Set a timeout in case isFinal never comes
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            // 3. Set a timeout in case isFinal never comes.
+            //    Scale with recording duration: longer recordings need more processing time.
+            let recordingDuration = self.recordingStartedAt.map { Date().timeIntervalSince($0) } ?? 0
+            let timeout = max(5.0, min(recordingDuration * 0.1, 15.0))
+            self.recordingStartedAt = nil
+            DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { [weak self] in
                 guard let self = self, self.isWaitingForFinal, !self.hasResumedContinuation else { return }
                 AppLogger.audio.info("recording phase=timeout_fallback engine=apple transcript_chars=\(self.transcript.count)")
                 self.hasResumedContinuation = true
