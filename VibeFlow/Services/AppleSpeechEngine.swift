@@ -24,6 +24,14 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
     private var isWaitingForFinal = false
     private var hasResumedContinuation = false
 
+    // Chunking: SFSpeechRecognizer has an undocumented ~60s limit on continuous audio.
+    // We rotate the recognition request before hitting the limit to support unlimited duration.
+    private var accumulatedTranscript = ""
+    private var currentChunkTranscript = ""
+    private var chunkTimer: Timer?
+    private var currentContextualTerms: [String] = []
+    private let maxChunkDuration: TimeInterval = 50
+
     func requestPermissions() async throws {
         // Permissions are now handled by PermissionsHelper
         // This method is kept for compatibility
@@ -50,11 +58,15 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
         recognitionRequest = nil
         audioEngine.reset()
         stopLevelTimer()
+        stopChunkTimer()
 
         // Small delay to ensure I/O thread fully terminates
         Thread.sleep(forTimeInterval: 0.05)
 
         transcript = ""
+        accumulatedTranscript = ""
+        currentChunkTranscript = ""
+        currentContextualTerms = contextualTerms
 
         guard let recognizer = speechRecognizer, recognizer.isAvailable else {
             AppLogger.audio.error("recording outcome=error engine=apple reason=recognizer_unavailable")
@@ -181,21 +193,39 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
         try audioEngine.start()
         AppLogger.audio.info("recording phase=active engine=apple running=\(self.audioEngine.isRunning)")
 
+        startRecognitionTask(with: request, on: recognizer)
+        print("✅ Recognition started")
+
+        startLevelTimer()
+        startChunkTimer()
+    }
+
+    /// Starts a recognition task and wires up the result/error callback.
+    private func startRecognitionTask(with request: SFSpeechAudioBufferRecognitionRequest, on recognizer: SFSpeechRecognizer) {
         recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
             guard let self = self else { return }
 
             if let result {
-                let text = result.bestTranscription.formattedString
+                let chunkText = result.bestTranscription.formattedString
+                self.currentChunkTranscript = chunkText
+
+                // Combine accumulated chunks with current chunk for display
+                let fullText: String
+                if self.accumulatedTranscript.isEmpty {
+                    fullText = chunkText
+                } else {
+                    fullText = self.accumulatedTranscript + " " + chunkText
+                }
                 DispatchQueue.main.async {
-                    self.transcript = text
+                    self.transcript = fullText
                 }
 
                 if result.isFinal {
-                    // Resume continuation if we're waiting for final
+                    // Resume continuation if we're waiting for final (i.e. stopAndWaitForFinal was called)
                     if self.isWaitingForFinal, !self.hasResumedContinuation {
                         self.hasResumedContinuation = true
                         self.isWaitingForFinal = false
-                        self.stopContinuation?.resume(returning: text)
+                        self.stopContinuation?.resume(returning: fullText)
                         self.stopContinuation = nil
                         self.cleanup()
                     }
@@ -214,8 +244,6 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
                 }
             }
         }
-
-        startLevelTimer()
     }
 
     /// Stops recording and waits for the final transcription result
@@ -239,6 +267,7 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
             self.audioEngine.stop()
             self.stopLevelTimer()
             AppLogger.audio.info("recording phase=waiting_for_final engine=apple")
+            self.stopChunkTimer()
 
             // 2. Signal end of audio - recognizer will process remaining buffer
             //    and eventually call back with isFinal = true
@@ -275,6 +304,9 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
         audioEngine.reset()
 
         stopLevelTimer()
+        stopChunkTimer()
+        accumulatedTranscript = ""
+        currentChunkTranscript = ""
     }
 
     /// Cleanup after final result received
@@ -283,6 +315,52 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
         recognitionTask = nil
         recognitionRequest = nil
         audioEngine.reset()
+        stopChunkTimer()
+    }
+
+    // MARK: - Chunk Rotation
+
+    /// Rotates the recognition request to avoid SFSpeechRecognizer's ~60s time limit.
+    /// The audio engine tap keeps running — only the recognizer is restarted.
+    private func rotateRecognitionRequest() {
+        guard let recognizer = speechRecognizer, recognizer.isAvailable else {
+            print("⚠️ Cannot rotate chunk: speech recognizer unavailable")
+            return
+        }
+        guard audioEngine.isRunning else { return }
+
+        print("🔄 Rotating recognition request (chunk limit approaching)")
+
+        // Snapshot the current full transcript as the new accumulated baseline
+        accumulatedTranscript = transcript
+        currentChunkTranscript = ""
+
+        // Tear down the old recognition task (cancel is fine — we already captured the partial)
+        recognitionTask?.cancel()
+        recognitionTask = nil
+        recognitionRequest?.endAudio()
+        recognitionRequest = nil
+
+        // Create a fresh request — the audio tap will immediately start feeding it
+        let newRequest = SFSpeechAudioBufferRecognitionRequest()
+        newRequest.shouldReportPartialResults = true
+        newRequest.contextualStrings = currentContextualTerms
+        self.recognitionRequest = newRequest
+
+        startRecognitionTask(with: newRequest, on: recognizer)
+        print("🔄 New recognition chunk started. Accumulated so far: \(accumulatedTranscript.count) chars")
+    }
+
+    private func startChunkTimer() {
+        chunkTimer?.invalidate()
+        chunkTimer = Timer.scheduledTimer(withTimeInterval: maxChunkDuration, repeats: true) { [weak self] _ in
+            self?.rotateRecognitionRequest()
+        }
+    }
+
+    private func stopChunkTimer() {
+        chunkTimer?.invalidate()
+        chunkTimer = nil
     }
 
     private func startLevelTimer() {
