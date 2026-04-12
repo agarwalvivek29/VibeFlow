@@ -36,7 +36,7 @@ struct MainView: View {
         .frame(minWidth: 1000, minHeight: 650)
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
-            print("📱 MainView onAppear - ensuring monitors are installed...")
+            AppLogger.app.info("main_view phase=appear action=installing_monitors")
             controller.installGlobalMonitors()
 
             #if os(macOS)

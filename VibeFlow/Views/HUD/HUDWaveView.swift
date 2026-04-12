@@ -200,7 +200,7 @@ final class HUDWindowController: NSWindowController {
         self.currentController = controller
         self.currentSettings = settings
 
-        print("[HUD] Initializing persistent HUD...")
+        AppLogger.hud.info("hud phase=init")
 
         let content = HUDWaveView(controller: controller, settings: settings)
 
@@ -232,7 +232,7 @@ final class HUDWindowController: NSWindowController {
         self.hosting = hosting
         panel.contentView = hosting
 
-        print("[HUD] HUD panel created with full-screen support")
+        AppLogger.hud.info("hud phase=panel_created fullscreen_support=true")
 
         // Position and show
         updatePosition()
@@ -246,7 +246,7 @@ final class HUDWindowController: NSWindowController {
 
     /// Called when recording starts - updates position to follow active screen
     func show(controller: ConversationController, settings: AppSettings, atBottom: Bool = true) {
-        print("[HUD] show() called, isRecording=\(controller.isRecording)")
+        AppLogger.hud.info("hud phase=show is_recording=\(controller.isRecording)")
 
         // Initialize if not already done
         if !isInitialized {
@@ -306,7 +306,7 @@ final class HUDWindowController: NSWindowController {
 
         // Final fallback to main screen or first available screen
         guard let screen = activeScreen ?? NSScreen.main ?? NSScreen.screens.first else {
-            print("[HUD] Error: No screen available!")
+            AppLogger.hud.error("hud outcome=error reason=no_screen_available")
             return
         }
 
@@ -330,9 +330,7 @@ final class HUDWindowController: NSWindowController {
         let x = screenFrame.minX + (screenFrame.width - size.width) / 2
         let y = screenFrame.minY + margin
 
-        print("[HUD] Active screen: \(screen.localizedName)")
-        print("[HUD] Screen frame: \(screenFrame)")
-        print("[HUD] HUD position: (\(x), \(y)), size: \(size), state: \(notchState)")
+        AppLogger.hud.info("hud_position screen=\(screen.localizedName) x=\(Int(x)) y=\(Int(y)) width=\(Int(size.width)) height=\(Int(size.height)) state=\(String(describing: notchState))")
 
         window.setFrame(NSRect(x: x, y: y, width: size.width, height: size.height), display: true)
     }

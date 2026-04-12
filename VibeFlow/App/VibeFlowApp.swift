@@ -23,7 +23,7 @@ struct VibeFlowApp: App {
             return try ModelContainer(for: schema, configurations: [modelConfiguration])
         } catch {
             // Schema migration failed — delete old store and retry
-            print("⚠️ SwiftData migration failed, recreating store: \(error)")
+            AppLogger.app.error("swiftdata_migration outcome=failed error=\(error.localizedDescription) action=recreating_store")
             let url = modelConfiguration.url
             try? FileManager.default.removeItem(at: url)
             // Also remove journal/wal files
@@ -38,21 +38,17 @@ struct VibeFlowApp: App {
     }()
 
     init() {
-        print("🚀 VibeFlow initializing...")
+        AppLogger.app.info("startup phase=init")
         let settingsInstance = AppSettings()
-        print("🚀 Settings loaded")
+        AppLogger.app.info("startup phase=settings_loaded speech_engine=\(settingsInstance.speechEngine.rawValue) text_engine=\(settingsInstance.textCleanupEngine.rawValue) llm_enabled=\(settingsInstance.useLLMProcessing)")
 
         let speechEngine = ConversationController.buildSpeechEngine(from: settingsInstance)
-        print("🚀 Speech engine created: \(settingsInstance.speechEngine.rawValue)")
-
         let textProcessor = ConversationController.buildTextProcessor(from: settingsInstance)
-        print("🚀 Text processor created: \(settingsInstance.textCleanupEngine.rawValue)")
 
         let controllerInstance = ConversationController(speechEngine: speechEngine, textProcessor: textProcessor, settings: settingsInstance)
-        print("🚀 ConversationController created")
         _settings = StateObject(wrappedValue: settingsInstance)
         _controller = StateObject(wrappedValue: controllerInstance)
-        print("🚀 VibeFlow init complete")
+        AppLogger.app.info("startup phase=complete")
     }
 
     var body: some Scene {
@@ -63,28 +59,22 @@ struct VibeFlowApp: App {
                 .preferredColorScheme(settings.appColorScheme.swiftUIValue)
                 .frame(minWidth: 1000, minHeight: 650)
                 .onAppear {
-                    print("📱 App onAppear - checking permissions before installing monitors...")
-
                     let hasAccessibility = PermissionsHelper.checkAccessibilityPermissions()
                     let hasMicrophone = PermissionsHelper.checkMicrophonePermission()
                     let hasSpeech = PermissionsHelper.checkSpeechRecognitionPermission()
 
-                    print("📊 Permission Status:")
-                    print("   🔐 Accessibility: \(hasAccessibility)")
-                    print("   🎤 Microphone: \(hasMicrophone)")
-                    print("   🗣️ Speech Recognition: \(hasSpeech)")
+                    AppLogger.app.info("permissions accessibility=\(hasAccessibility) microphone=\(hasMicrophone) speech_recognition=\(hasSpeech)")
 
                     if !hasAccessibility {
-                        print("⚠️ WARNING: Accessibility permission NOT granted! Global hotkeys will NOT work!")
+                        AppLogger.app.error("permission_missing type=accessibility impact=global_hotkeys_disabled")
                     }
                     if !hasMicrophone {
-                        print("⚠️ WARNING: Microphone permission NOT granted!")
+                        AppLogger.app.error("permission_missing type=microphone")
                     }
                     if !hasSpeech {
-                        print("⚠️ WARNING: Speech Recognition permission NOT granted!")
+                        AppLogger.app.error("permission_missing type=speech_recognition")
                     }
 
-                    print("📱 Installing global monitors now...")
                     controller.installGlobalMonitors()
                     controller.modelContainer = sharedModelContainer
 
@@ -94,11 +84,11 @@ struct VibeFlowApp: App {
                     }
 
                     #if os(macOS)
-                    print("📱 Initializing HUD notch...")
+                    AppLogger.app.info("hud phase=initializing")
                     HUDWindowController.shared.initialize(controller: controller, settings: settings)
                     #endif
 
-                    print("📱 onAppear complete")
+                    AppLogger.app.info("startup phase=on_appear_complete")
                 }
         }
         .modelContainer(sharedModelContainer)
