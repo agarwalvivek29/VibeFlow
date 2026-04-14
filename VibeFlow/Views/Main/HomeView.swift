@@ -26,14 +26,14 @@ struct DashboardView: View {
         Array(entries.prefix(5))
     }
 
-    private var totalWords: Int {
-        entries.reduce(0) { $0 + $1.wordCount }
+    private var hasModelLoadFailure: Bool {
+        if case .failed = controller.speechEngineState { return true }
+        if case .failed = controller.textProcessorState { return true }
+        return false
     }
 
-    private var modelError: String? {
-        if case .failed(let msg) = controller.speechEngineState { return msg }
-        if case .failed(let msg) = controller.textProcessorState { return msg }
-        return nil
+    private var totalWords: Int {
+        entries.reduce(0) { $0 + $1.wordCount }
     }
 
     var body: some View {
@@ -42,11 +42,6 @@ struct DashboardView: View {
                 // Permissions banner (only when missing)
                 if !allPermissionsGranted {
                     permissionsBanner
-                }
-
-                // Model error banner (only when a model failed to load)
-                if let err = modelError {
-                    modelErrorBanner(err)
                 }
 
                 // Status card
@@ -115,61 +110,6 @@ struct DashboardView: View {
         hasAccessibilityPermission = PermissionsHelper.checkAccessibilityPermissions()
         hasMicrophonePermission = PermissionsHelper.checkMicrophonePermission()
         hasSpeechRecognitionPermission = PermissionsHelper.checkSpeechRecognitionPermission()
-    }
-
-    // MARK: - Model Error Banner
-
-    private func modelErrorBanner(_ error: String) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 16))
-                .foregroundColor(.red)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Model failed to load")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.primary)
-                Text(error)
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
-                    .lineLimit(2)
-            }
-
-            Spacer()
-
-            VStack(spacing: 6) {
-                Button(action: { selectedNavigation = .settings }) {
-                    Text("Change Model")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(Color.secondary)
-                        .cornerRadius(6)
-                }
-                .buttonStyle(.plain)
-
-                Button(action: {
-                    Task { await controller.rebuildAndPreload(from: settings) }
-                }) {
-                    Text("Retry")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(Color.red)
-                        .cornerRadius(6)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(16)
-        .background(Color.red.opacity(0.06))
-        .cornerRadius(10)
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.red.opacity(0.2), lineWidth: 1)
-        )
     }
 
     // MARK: - Status Card
@@ -301,7 +241,7 @@ struct DashboardView: View {
             return "Recording"
         } else if controller.isProcessing {
             return "Processing…"
-        } else if modelError != nil {
+        } else if hasModelLoadFailure {
             return "Model Error"
         } else if !allPermissionsGranted {
             return "Setup Required"
@@ -315,7 +255,7 @@ struct DashboardView: View {
             return .red
         } else if controller.isProcessing {
             return Color(red: 0.357, green: 0.310, blue: 0.914)
-        } else if modelError != nil {
+        } else if hasModelLoadFailure {
             return .red
         } else if !allPermissionsGranted {
             return .orange

@@ -25,5 +25,7 @@ struct RootView: View {
             textProcessor: nil,
             settings: AppSettings()
         ))
+        .environmentObject(ModelDownloadManager())
+        .environmentObject(IssueCenter())
         .modelContainer(for: TranscriptionEntry.self, inMemory: true)
 }

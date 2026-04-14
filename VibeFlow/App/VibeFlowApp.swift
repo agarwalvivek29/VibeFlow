@@ -16,6 +16,8 @@ import AppKit
 struct VibeFlowApp: App {
     @StateObject private var settings: AppSettings
     @StateObject private var controller: ConversationController
+    @StateObject private var downloadManager = ModelDownloadManager()
+    @StateObject private var issueCenter = IssueCenter()
 
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([TranscriptionEntry.self, DictionaryEntry.self])
@@ -57,6 +59,8 @@ struct VibeFlowApp: App {
             RootView()
                 .environmentObject(settings)
                 .environmentObject(controller)
+                .environmentObject(downloadManager)
+                .environmentObject(issueCenter)
                 .preferredColorScheme(settings.appColorScheme.swiftUIValue)
                 .frame(minWidth: 1000, minHeight: 650)
                 .onAppear {
