@@ -7,6 +7,7 @@
 
 import SwiftUI
 import SwiftData
+import os
 #if os(macOS)
 import AppKit
 #endif

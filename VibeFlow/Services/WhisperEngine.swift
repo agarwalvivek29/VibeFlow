@@ -9,6 +9,7 @@
 //   Then select the "WhisperKit" product.
 
 import Foundation
+import os
 import AVFoundation
 import Accelerate
 import Combine

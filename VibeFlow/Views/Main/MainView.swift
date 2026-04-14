@@ -8,6 +8,7 @@
 
 import SwiftUI
 import SwiftData
+import os
 
 struct MainView: View {
     @State private var selectedNavigation: NavigationItem? = .dashboard

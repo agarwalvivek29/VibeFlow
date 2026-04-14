@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import os
 import AppKit
 import AVFoundation
 import Speech

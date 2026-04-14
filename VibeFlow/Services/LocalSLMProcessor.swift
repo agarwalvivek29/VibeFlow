@@ -9,6 +9,7 @@
 //   Products: MLXLLM, MLXLMCommon
 
 import Foundation
+import os
 import MLX
 import MLXLLM
 import MLXLMCommon

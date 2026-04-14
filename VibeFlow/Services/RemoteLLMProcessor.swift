@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 final class RemoteLLMProcessor: TextProcessingService {
     private let client: LiteLLMClient

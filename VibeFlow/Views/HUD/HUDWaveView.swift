@@ -1,4 +1,5 @@
 import SwiftUI
+import os
 
 // MARK: - NotchState
 
