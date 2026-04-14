@@ -1,6 +1,24 @@
 # Changelog
 
-All notable changes to WhisprFlow are documented here.
+All notable changes to VibeFlow are documented here.
+
+## [1.3] - 2026-04-14
+
+### Added
+- Global Issue Center accessible from the top-right across all pages, with centralized error visibility and actions
+- Issue indicator pulse animation when new active issues appear
+- Issue panel actions for model recovery: `Fix Now`, `Retry`, and `Change Model`
+
+### Changed
+- Dashboard-local model load error banner removed in favor of strict centralized issue handling
+- Model cache path handling aligned with app container cache location for debug app flows
+- HUD error pill expanded to support longer two-line messages without truncation
+
+### Fixed
+- Recording is blocked while model(s) are loading to avoid race-condition transcription attempts
+- Model loading state is shown in HUD (`Loading model…`) during preload/recovery
+- Model load and processing failures now surface user-friendly messages instead of raw MLX internals
+- Stale failed model state auto-clears after first successful SLM inference
 
 ## [1.2] - 2026-03-28
 
