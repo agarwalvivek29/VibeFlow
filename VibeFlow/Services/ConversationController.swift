@@ -295,6 +295,10 @@ final class ConversationController: ObservableObject {
             AppLogger.pipeline.error("recording outcome=blocked reason=engine_failed error=\(msg)")
             return
         }
+        if speechEngineState == .loading || textProcessorState == .loading {
+            AppLogger.pipeline.info("recording outcome=blocked reason=model_loading")
+            return
+        }
         isRecording = true
         recordingStartedAt = Date()
         do {
@@ -459,13 +463,15 @@ final class ConversationController: ObservableObject {
             let processingStart = Date()
             do {
                 processedText = try await processor.process(text: cleaned, systemPrompt: settings.buildSystemPrompt())
+                // Model proved functional; clear stale failed state from preload download races.
+                if case .failed = textProcessorState { textProcessorState = .loaded }
                 processingMs = Int(Date().timeIntervalSince(processingStart) * 1000)
                 pasteToFrontmostApp(processedText)
                 usedLLM = true
             } catch {
                 processingMs = Int(Date().timeIntervalSince(processingStart) * 1000)
                 AppLogger.pipeline.error("session phase=processing_failed engine=\(engineName) error=\(error.localizedDescription) processing_ms=\(processingMs)")
-                let errMsg = "Processing failed: \(error.localizedDescription)"
+                let errMsg = friendlyModelError(error, for: "AI")
                 processingError = errMsg
                 Task { @MainActor [weak self] in
                     try? await Task.sleep(nanoseconds: 3_000_000_000)

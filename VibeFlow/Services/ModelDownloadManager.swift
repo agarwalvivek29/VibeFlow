@@ -39,8 +39,8 @@ final class ModelDownloadManager: ObservableObject {
     private(set) var modelsDirectory: URL
 
     private static let slmCacheDir: URL = {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        return home.appendingPathComponent(".cache/huggingface/hub/models--mlx-community--Qwen2.5-0.5B-Instruct-4bit")
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        return caches.appendingPathComponent("models/mlx-community/Qwen2.5-0.5B-Instruct-4bit")
     }()
 
     // MARK: - Init
