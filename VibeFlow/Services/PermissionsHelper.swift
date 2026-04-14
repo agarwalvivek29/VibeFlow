@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import os
 import AppKit
 import AVFoundation
 import Speech
@@ -17,14 +18,13 @@ class PermissionsHelper {
     }
 
     static func requestAccessibilityPermissions() {
-        print("🔐 Requesting accessibility permissions...")
+        AppLogger.permissions.info("permission_request type=accessibility")
         let options: NSDictionary = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
         let result = AXIsProcessTrustedWithOptions(options)
-        print("🔐 Accessibility permission result: \(result)")
+        AppLogger.permissions.info("permission_result type=accessibility granted=\(result)")
 
         if !result {
-            print("🔐 Permission not granted, opening System Settings...")
-            // Open System Settings directly since the prompt might not work for debug builds
+            AppLogger.permissions.info("permission_action type=accessibility action=opening_system_settings")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 openAccessibilityPreferences()
             }
@@ -32,20 +32,14 @@ class PermissionsHelper {
     }
 
     static func openAccessibilityPreferences() {
-        print("🔐 Opening Accessibility Settings directly...")
-
-        // Try to open directly to Accessibility settings
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
-            print("🔐 Opened Privacy & Security → Accessibility directly")
+            AppLogger.permissions.info("permission_settings_opened type=accessibility method=direct_url")
         } else {
-            // Fallback: open System Settings
             let settingsURL = URL(fileURLWithPath: "/System/Applications/System Settings.app")
             NSWorkspace.shared.open(settingsURL)
-            print("🔐 System Settings opened. Navigate to: Privacy & Security → Accessibility")
+            AppLogger.permissions.info("permission_settings_opened type=accessibility method=system_settings_fallback")
         }
-
-        print("🔐 Then toggle VibeFlow (or the Xcode debug build) to enable it")
     }
 
     // MARK: - Microphone
@@ -55,11 +49,11 @@ class PermissionsHelper {
     }
 
     static func requestMicrophonePermission() {
-        print("🎤 Requesting microphone permission...")
+        AppLogger.permissions.info("permission_request type=microphone")
         AVCaptureDevice.requestAccess(for: .audio) { granted in
-            print("🎤 Microphone permission result: \(granted)")
+            AppLogger.permissions.info("permission_result type=microphone granted=\(granted)")
             if !granted {
-                print("🎤 Permission denied or dialog dismissed, opening System Settings...")
+                AppLogger.permissions.info("permission_action type=microphone action=opening_system_settings")
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     openMicrophonePreferences()
                 }
@@ -68,17 +62,13 @@ class PermissionsHelper {
     }
 
     static func openMicrophonePreferences() {
-        print("🎤 Opening Microphone Settings...")
-
-        // Try to open directly to Microphone settings
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
             NSWorkspace.shared.open(url)
-            print("🎤 Opened Privacy & Security → Microphone directly")
+            AppLogger.permissions.info("permission_settings_opened type=microphone method=direct_url")
         } else {
-            // Fallback
             let settingsURL = URL(fileURLWithPath: "/System/Applications/System Settings.app")
             NSWorkspace.shared.open(settingsURL)
-            print("🎤 Navigate to: Privacy & Security → Microphone")
+            AppLogger.permissions.info("permission_settings_opened type=microphone method=system_settings_fallback")
         }
     }
 
@@ -89,12 +79,13 @@ class PermissionsHelper {
     }
 
     static func requestSpeechRecognitionPermission() async {
-        print("🗣️ Requesting speech recognition permission...")
+        AppLogger.permissions.info("permission_request type=speech_recognition")
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             SFSpeechRecognizer.requestAuthorization { status in
-                print("🗣️ Speech Recognition permission result: \(status.rawValue)")
+                let granted = status == .authorized
+                AppLogger.permissions.info("permission_result type=speech_recognition granted=\(granted) status=\(status.rawValue)")
                 if status != .authorized {
-                    print("🗣️ Permission not granted, opening System Settings...")
+                    AppLogger.permissions.info("permission_action type=speech_recognition action=opening_system_settings")
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                         openSpeechRecognitionPreferences()
                     }
@@ -105,17 +96,13 @@ class PermissionsHelper {
     }
 
     static func openSpeechRecognitionPreferences() {
-        print("🗣️ Opening Speech Recognition Settings...")
-
-        // Try to open directly to Speech Recognition settings
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition") {
             NSWorkspace.shared.open(url)
-            print("🗣️ Opened Privacy & Security → Speech Recognition directly")
+            AppLogger.permissions.info("permission_settings_opened type=speech_recognition method=direct_url")
         } else {
-            // Fallback
             let settingsURL = URL(fileURLWithPath: "/System/Applications/System Settings.app")
             NSWorkspace.shared.open(settingsURL)
-            print("🗣️ Navigate to: Privacy & Security → Speech Recognition")
+            AppLogger.permissions.info("permission_settings_opened type=speech_recognition method=system_settings_fallback")
         }
     }
 }

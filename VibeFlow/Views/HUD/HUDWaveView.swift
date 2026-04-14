@@ -1,4 +1,5 @@
 import SwiftUI
+import os
 
 // MARK: - NotchState
 
@@ -6,6 +7,7 @@ enum NotchState: Equatable {
     case idle
     case recording
     case processing
+    case modelLoading
     case error(String)
 
     var width: CGFloat {
@@ -13,14 +15,16 @@ enum NotchState: Equatable {
         case .idle: return 80
         case .recording: return 160
         case .processing: return 160
-        case .error: return 200
+        case .modelLoading: return 200
+        case .error: return 320
         }
     }
 
     var height: CGFloat {
         switch self {
         case .idle: return 24
-        case .recording, .processing, .error: return 28
+        case .recording, .processing, .modelLoading: return 28
+        case .error: return 48
         }
     }
 }
@@ -65,6 +69,9 @@ struct HUDWaveView: View {
         if let err = controller.processingError { return .error(err) }
         if controller.isProcessing { return .processing }
         if controller.isRecording { return .recording }
+        if controller.speechEngineState == .loading || controller.textProcessorState == .loading {
+            return .modelLoading
+        }
         return .idle
     }
 
@@ -91,6 +98,8 @@ struct HUDWaveView: View {
                 recordingContent.transition(.opacity)
             case .processing:
                 processingContent.transition(.opacity)
+            case .modelLoading:
+                modelLoadingContent.transition(.opacity)
             case .error(let msg):
                 errorContent(msg).transition(.opacity)
             }
@@ -103,6 +112,7 @@ struct HUDWaveView: View {
             case .idle: return "Ready to record"
             case .recording: return "Recording in progress"
             case .processing: return "Processing transcription"
+            case .modelLoading: return "Loading model"
             case .error(let msg): return "Error: \(msg)"
             }
         }())
@@ -156,6 +166,21 @@ struct HUDWaveView: View {
         .padding(.vertical, 6)
     }
 
+    private var modelLoadingContent: some View {
+        HStack(spacing: 8) {
+            ProgressView()
+                .scaleEffect(0.65)
+                .progressViewStyle(.circular)
+                .tint(.white)
+
+            Text("Loading model…")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.white.opacity(0.8))
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+    }
+
     // MARK: - Error State Content
 
     private func errorContent(_ message: String) -> some View {
@@ -164,10 +189,12 @@ struct HUDWaveView: View {
                 .font(.system(size: 11))
                 .foregroundColor(.white)
 
-            Text(String(message.prefix(28)))
+            Text(message)
                 .font(.system(size: 10, weight: .medium))
                 .foregroundColor(.white.opacity(0.9))
-                .lineLimit(1)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
@@ -200,7 +227,7 @@ final class HUDWindowController: NSWindowController {
         self.currentController = controller
         self.currentSettings = settings
 
-        print("[HUD] Initializing persistent HUD...")
+        AppLogger.hud.info("hud phase=init")
 
         let content = HUDWaveView(controller: controller, settings: settings)
 
@@ -232,7 +259,7 @@ final class HUDWindowController: NSWindowController {
         self.hosting = hosting
         panel.contentView = hosting
 
-        print("[HUD] HUD panel created with full-screen support")
+        AppLogger.hud.info("hud phase=panel_created fullscreen_support=true")
 
         // Position and show
         updatePosition()
@@ -246,7 +273,7 @@ final class HUDWindowController: NSWindowController {
 
     /// Called when recording starts - updates position to follow active screen
     func show(controller: ConversationController, settings: AppSettings, atBottom: Bool = true) {
-        print("[HUD] show() called, isRecording=\(controller.isRecording)")
+        AppLogger.hud.info("hud phase=show is_recording=\(controller.isRecording)")
 
         // Initialize if not already done
         if !isInitialized {
@@ -306,7 +333,7 @@ final class HUDWindowController: NSWindowController {
 
         // Final fallback to main screen or first available screen
         guard let screen = activeScreen ?? NSScreen.main ?? NSScreen.screens.first else {
-            print("[HUD] Error: No screen available!")
+            AppLogger.hud.error("hud outcome=error reason=no_screen_available")
             return
         }
 
@@ -318,6 +345,7 @@ final class HUDWindowController: NSWindowController {
             if let err = ctrl.processingError { return .error(err) }
             if ctrl.isProcessing { return .processing }
             if ctrl.isRecording { return .recording }
+            if ctrl.speechEngineState == .loading || ctrl.textProcessorState == .loading { return .modelLoading }
             return .idle
         }()
         let size = CGSize(width: notchState.width, height: notchState.height)
@@ -330,9 +358,7 @@ final class HUDWindowController: NSWindowController {
         let x = screenFrame.minX + (screenFrame.width - size.width) / 2
         let y = screenFrame.minY + margin
 
-        print("[HUD] Active screen: \(screen.localizedName)")
-        print("[HUD] Screen frame: \(screenFrame)")
-        print("[HUD] HUD position: (\(x), \(y)), size: \(size), state: \(notchState)")
+        AppLogger.hud.info("hud_position screen=\(screen.localizedName) x=\(Int(x)) y=\(Int(y)) width=\(Int(size.width)) height=\(Int(size.height)) state=\(String(describing: notchState))")
 
         window.setFrame(NSRect(x: x, y: y, width: size.width, height: size.height), display: true)
     }

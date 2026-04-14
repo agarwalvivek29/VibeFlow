@@ -9,6 +9,7 @@
 //   Products: MLXLLM, MLXLMCommon
 
 import Foundation
+import os
 import MLX
 import MLXLLM
 import MLXLMCommon
@@ -25,10 +26,12 @@ final class LocalSLMProcessor: TextProcessingService {
 
     func process(text: String, systemPrompt: String) async throws -> String {
         if modelContainer == nil {
-            print("🧠 Loading SLM model: \(modelId)...")
+            AppLogger.models.info("model_load phase=start model=slm variant=\(self.modelId)")
+            let loadStart = Date()
             let config = ModelConfiguration(id: modelId)
             modelContainer = try await LLMModelFactory.shared.loadContainer(configuration: config)
-            print("🧠 Model loaded")
+            let elapsed = Int(Date().timeIntervalSince(loadStart) * 1000)
+            AppLogger.models.info("model_load phase=complete model=slm variant=\(self.modelId) duration_ms=\(elapsed)")
         }
 
         guard let container = modelContainer else {
@@ -74,15 +77,15 @@ final class LocalSLMProcessor: TextProcessingService {
     // MARK: - Memory Management
 
     func unload() {
-        print("🗑️ LocalSLMProcessor.unload() — releasing MLX ModelContainer")
+        AppLogger.models.info("model_unload model=slm variant=\(self.modelId) action=releasing_container")
         modelContainer = nil
         // MLX's caching allocator retains Metal GPU buffers in a pool after inference.
         // clearCache() forces them back to the OS immediately instead of accumulating.
         Memory.clearCache()
-        print("🗑️ MLX Memory cache cleared — inference buffers returned to OS")
+        AppLogger.models.info("model_unload model=slm action=cache_cleared")
     }
 
     deinit {
-        print("🗑️ LocalSLMProcessor deallocated — MLX Metal buffers freed")
+        AppLogger.models.info("model_dealloc model=slm")
     }
 }

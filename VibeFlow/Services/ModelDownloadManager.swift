@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import os
 import SwiftUI
 import Combine
 
@@ -38,8 +39,8 @@ final class ModelDownloadManager: ObservableObject {
     private(set) var modelsDirectory: URL
 
     private static let slmCacheDir: URL = {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        return home.appendingPathComponent(".cache/huggingface/hub/models--mlx-community--Qwen2.5-0.5B-Instruct-4bit")
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        return caches.appendingPathComponent("models/mlx-community/Qwen2.5-0.5B-Instruct-4bit")
     }()
 
     // MARK: - Init
@@ -105,9 +106,11 @@ final class ModelDownloadManager: ObservableObject {
         switch type {
         case .whisper(let size):
             let path = modelsDirectory.appendingPathComponent(size.fileName)
+            AppLogger.models.info("model_delete model=whisper variant=\(size.rawValue)")
             try FileManager.default.removeItem(at: path)
             whisperStates[size] = .notDownloaded
         case .slm:
+            AppLogger.models.info("model_delete model=slm")
             try FileManager.default.removeItem(at: Self.slmCacheDir)
             slmState = .notDownloaded
         }
@@ -116,7 +119,9 @@ final class ModelDownloadManager: ObservableObject {
     // MARK: - Downloads
 
     func downloadWhisperModel(size: WhisperModelSize) async {
+        AppLogger.models.info("download phase=start model=whisper variant=\(size.rawValue) url=\(size.downloadURL.absoluteString)")
         whisperStates[size] = .downloading(progress: 0)
+        let downloadStart = Date()
 
         do {
             let (asyncBytes, response) = try await URLSession.shared.bytes(from: size.downloadURL)
@@ -125,10 +130,13 @@ final class ModelDownloadManager: ObservableObject {
             let destinationURL = modelsDirectory.appendingPathComponent(size.fileName)
             let tempURL = modelsDirectory.appendingPathComponent(size.fileName + ".tmp")
 
+            AppLogger.models.info("download phase=streaming model=whisper variant=\(size.rawValue) total_bytes=\(totalBytes)")
+
             // Remove any leftover temp file
             try? FileManager.default.removeItem(at: tempURL)
 
             guard let output = OutputStream(url: tempURL, append: false) else {
+                AppLogger.models.error("download outcome=error model=whisper variant=\(size.rawValue) reason=failed_to_create_output_file")
                 whisperStates[size] = .error("Failed to create output file")
                 return
             }
@@ -138,6 +146,7 @@ final class ModelDownloadManager: ObservableObject {
             let bufferSize = 65_536
             var buffer = [UInt8]()
             buffer.reserveCapacity(bufferSize)
+            var lastLoggedProgress: Double = 0
 
             for try await byte in asyncBytes {
                 buffer.append(byte)
@@ -152,6 +161,11 @@ final class ModelDownloadManager: ObservableObject {
                     if totalBytes > 0 {
                         let progress = Double(downloadedBytes) / Double(totalBytes)
                         whisperStates[size] = .downloading(progress: progress)
+                        // Log at 25% milestones
+                        if progress - lastLoggedProgress >= 0.25 {
+                            lastLoggedProgress = (progress * 4).rounded(.down) / 4
+                            AppLogger.models.info("download phase=progress model=whisper variant=\(size.rawValue) progress=\(Int(progress * 100))%")
+                        }
                     }
                 }
             }
@@ -166,8 +180,12 @@ final class ModelDownloadManager: ObservableObject {
             try? FileManager.default.removeItem(at: destinationURL)
             try FileManager.default.moveItem(at: tempURL, to: destinationURL)
 
+            let elapsed = Int(Date().timeIntervalSince(downloadStart) * 1000)
+            AppLogger.models.info("download outcome=success model=whisper variant=\(size.rawValue) size_bytes=\(downloadedBytes) duration_ms=\(elapsed)")
             whisperStates[size] = .downloaded
         } catch {
+            let elapsed = Int(Date().timeIntervalSince(downloadStart) * 1000)
+            AppLogger.models.error("download outcome=error model=whisper variant=\(size.rawValue) error=\(error.localizedDescription) duration_ms=\(elapsed)")
             whisperStates[size] = .error(error.localizedDescription)
         }
     }
@@ -176,8 +194,10 @@ final class ModelDownloadManager: ObservableObject {
         // MLX models are downloaded by ModelFactory on first load.
         // We just check if the HuggingFace cache already exists.
         if FileManager.default.fileExists(atPath: Self.slmCacheDir.path) {
+            AppLogger.models.info("model_check model=slm outcome=already_cached path=\(Self.slmCacheDir.path)")
             slmState = .downloaded
         } else {
+            AppLogger.models.info("model_check model=slm outcome=not_cached")
             slmState = .notDownloaded
         }
     }

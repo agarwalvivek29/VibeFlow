@@ -9,6 +9,7 @@
 //   Then select the "WhisperKit" product.
 
 import Foundation
+import os
 import AVFoundation
 import Accelerate
 import Combine
@@ -66,16 +67,21 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
     func loadModel() async {
         #if canImport(WhisperKit)
         loadState = .loading
+        let loadStart = Date()
+        AppLogger.models.info("model_load phase=start model=whisper variant=\(self.modelVariant)")
         do {
             whisperKit = try await WhisperKit(model: "openai_whisper-\(modelVariant)")
             loadState = .loaded
+            let elapsed = Int(Date().timeIntervalSince(loadStart) * 1000)
+            AppLogger.models.info("model_load outcome=success model=whisper variant=\(self.modelVariant) duration_ms=\(elapsed)")
         } catch {
             loadState = .failed(error.localizedDescription)
-            print("Failed to load WhisperKit model '\(modelVariant)': \(error)")
+            let elapsed = Int(Date().timeIntervalSince(loadStart) * 1000)
+            AppLogger.models.error("model_load outcome=error model=whisper variant=\(self.modelVariant) error=\(error.localizedDescription) duration_ms=\(elapsed)")
         }
         #else
         loadState = .failed("WhisperKit dependency not installed")
-        print("WhisperKit SPM dependency not installed — WhisperEngine unavailable")
+        AppLogger.models.error("model_load outcome=error model=whisper reason=spm_dependency_missing")
         #endif
     }
 
@@ -109,6 +115,7 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
         )
 
         guard status == noErr, defaultDeviceID != 0 else {
+            AppLogger.audio.error("recording outcome=error engine=whisper reason=no_input_device")
             throw NSError(domain: "WhisperEngine", code: 2,
                           userInfo: [NSLocalizedDescriptionKey: "No input device available"])
         }
@@ -173,6 +180,7 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
 
         audioEngine.prepare()
         try audioEngine.start()
+        AppLogger.audio.info("recording phase=active engine=whisper sample_rate=\(Int(self.deviceSampleRate))")
         startLevelTimer()
     }
 
@@ -193,10 +201,11 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
         }
 
         guard let kit = whisperKit else {
-            print("WhisperKit not loaded — cannot transcribe")
+            AppLogger.audio.error("recording outcome=error engine=whisper reason=model_not_loaded")
             return ""
         }
 
+        let transcribeStart = Date()
         do {
             let options = DecodingOptions(
                 language: "en"
@@ -204,14 +213,17 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
             let results: [TranscriptionResult] = try await kit.transcribe(audioArray: samples, decodeOptions: options)
             let text = results.map(\.text).joined(separator: " ")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
+            let elapsed = Int(Date().timeIntervalSince(transcribeStart) * 1000)
+            AppLogger.audio.info("transcription outcome=success engine=whisper chars=\(text.count) duration_ms=\(elapsed)")
             transcript = text
             return text
         } catch {
-            print("WhisperKit transcription failed: \(error)")
+            let elapsed = Int(Date().timeIntervalSince(transcribeStart) * 1000)
+            AppLogger.audio.error("transcription outcome=error engine=whisper error=\(error.localizedDescription) duration_ms=\(elapsed)")
             return ""
         }
         #else
-        print("WhisperKit SPM dependency not installed — transcription unavailable")
+        AppLogger.audio.error("transcription outcome=error engine=whisper reason=spm_dependency_missing")
         return ""
         #endif
     }
@@ -225,7 +237,7 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
     }
 
     deinit {
-        print("🗑️ WhisperEngine deallocated — CoreML/ANE model released")
+        AppLogger.models.info("model_dealloc model=whisper variant=\(self.modelVariant)")
     }
 
     // MARK: - Resampling

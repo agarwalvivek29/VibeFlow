@@ -1,13 +1,11 @@
 import Foundation
+import os
 import SwiftUI
 import SwiftData
 import Combine
-import os.log
 #if os(macOS)
 import AppKit
 #endif
-
-private let pipelineLog = Logger(subsystem: "com.vibeflow.app", category: "pipeline")
 
 // MARK: - ModelLoadState
 
@@ -78,6 +76,20 @@ final class ConversationController: ObservableObject {
         }
     }
 
+    private func friendlyModelError(_ error: Error, for modelName: String) -> String {
+        let raw = error.localizedDescription
+        if raw.contains("safetensors.") || raw.contains("model.safetensors") {
+            return "The \(modelName) model file is corrupted. Delete the cache in Model Management and retry."
+        }
+        if raw.contains("No such file") || raw.contains("does not exist") {
+            return "The \(modelName) model is missing. Tap Retry to download it."
+        }
+        if raw.contains("network") || raw.contains("internet") || raw.contains("URLError") {
+            return "Download failed. Check your internet connection and retry."
+        }
+        return "Failed to load \(modelName). Tap Retry or choose a different model."
+    }
+
     /// Rebuild engines and eagerly preload models. Called from the Settings Save button.
     /// Runs async so callers can show a loading indicator while this completes.
     func rebuildAndPreload(from settings: AppSettings) async {
@@ -89,18 +101,21 @@ final class ConversationController: ObservableObject {
         let newSpeech = Self.buildSpeechEngine(from: settings)
         let newProcessor = Self.buildTextProcessor(from: settings)
 
-        pipelineLog.info("🔄 Rebuilding engines: speech=\(settings.speechEngine.rawValue) text=\(settings.textCleanupEngine.rawValue) llm=\(settings.useLLMProcessing)")
+        AppLogger.pipeline.info("engines_rebuild speech=\(settings.speechEngine.rawValue) text=\(settings.textCleanupEngine.rawValue) llm=\(settings.useLLMProcessing)")
         updateEngines(speech: newSpeech, textProcessor: newProcessor)
 
         if let whisper = newSpeech as? WhisperEngine {
             speechEngineState = .loading
-            pipelineLog.info("⏳ Loading Whisper model...")
+            AppLogger.pipeline.info("model_preload phase=start model=whisper")
             await whisper.loadModel()
-            speechEngineState = whisper.loadState
             if case .failed(let msg) = whisper.loadState {
-                pipelineLog.error("❌ Whisper model failed: \(msg)")
+                // Remap raw error to a user-friendly message using a synthetic Error
+                let syntheticError = NSError(domain: "WhisperEngine", code: 0, userInfo: [NSLocalizedDescriptionKey: msg])
+                speechEngineState = .failed(friendlyModelError(syntheticError, for: "Whisper"))
+                AppLogger.pipeline.error("model_preload outcome=error model=whisper error=\(msg)")
             } else {
-                pipelineLog.info("✅ Whisper model loaded")
+                speechEngineState = whisper.loadState
+                AppLogger.pipeline.info("model_preload outcome=success model=whisper")
             }
         } else {
             // Apple Speech is always ready — no download required
@@ -109,14 +124,14 @@ final class ConversationController: ObservableObject {
 
         if let slm = newProcessor as? LocalSLMProcessor {
             textProcessorState = .loading
-            pipelineLog.info("⏳ Loading SLM model...")
+            AppLogger.pipeline.info("model_preload phase=start model=slm")
             do {
                 _ = try await slm.process(text: "Hello", systemPrompt: "Reply with OK")
                 textProcessorState = .loaded
-                pipelineLog.info("✅ SLM model loaded")
+                AppLogger.pipeline.info("model_preload outcome=success model=slm")
             } catch {
-                textProcessorState = .failed(error.localizedDescription)
-                pipelineLog.error("❌ SLM model failed: \(error.localizedDescription)")
+                textProcessorState = .failed(friendlyModelError(error, for: "AI"))
+                AppLogger.pipeline.error("model_preload outcome=error model=slm error=\(error.localizedDescription)")
             }
         } else {
             textProcessorState = newProcessor != nil ? .loaded : .idle
@@ -277,7 +292,11 @@ final class ConversationController: ObservableObject {
     private func startRecording() {
         guard !isRecording else { return }
         if case .failed(let msg) = speechEngineState {
-            pipelineLog.error("❌ Cannot record: speech engine failed — \(msg)")
+            AppLogger.pipeline.error("recording outcome=blocked reason=engine_failed error=\(msg)")
+            return
+        }
+        if speechEngineState == .loading || textProcessorState == .loading {
+            AppLogger.pipeline.info("recording outcome=blocked reason=model_loading")
             return
         }
         isRecording = true
@@ -301,7 +320,7 @@ final class ConversationController: ObservableObject {
             HUDWindowController.shared.show(controller: self, settings: settings, atBottom: true)
             #endif
         } catch {
-            print("❌ Error starting recording: \(error)")
+            AppLogger.pipeline.error("recording outcome=error phase=start error=\(error.localizedDescription)")
             isRecording = false
         }
     }
@@ -408,6 +427,8 @@ final class ConversationController: ObservableObject {
         processingError = nil
         defer { isProcessing = false }
 
+        let sessionStart = Date()
+
         // Grace period: let the audio engine capture the last syllables before stopping.
         // Without this, releasing the key cuts off trailing words.
         try? await Task.sleep(nanoseconds: 300_000_000) // 300ms
@@ -416,6 +437,7 @@ final class ConversationController: ObservableObject {
         recordingStartedAt = nil
 
         let transcript = await speechEngine.stopAndWaitForFinal()
+        let engineName = String(describing: type(of: speechEngine))
 
         isRecording = false
         #if os(macOS)
@@ -423,32 +445,33 @@ final class ConversationController: ObservableObject {
         #endif
 
         guard !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            pipelineLog.info("🛑 Empty transcript, skipping processing")
+            let sessionMs = Int(Date().timeIntervalSince(sessionStart) * 1000)
+            AppLogger.pipeline.info("session outcome=empty engine=\(engineName) recording_ms=\(Int(recordingDuration * 1000)) session_ms=\(sessionMs)")
             return
         }
 
-        pipelineLog.info("📝 Raw transcript: '\(transcript)'")
-
         let cleaned = settings.removeFiller ? FillerRemover.removeFiller(from: transcript) : transcript
-        if settings.removeFiller {
-            pipelineLog.info("🧹 After filler removal: '\(cleaned)'")
-        }
+        let fillersRemoved = transcript.count - cleaned.count
 
         var processedText = ""
         var usedLLM = false
+        var processingMs = 0
 
         if settings.useLLMProcessing, let processor = textProcessor {
-            pipelineLog.info("🤖 Sending to text processor (\(String(describing: type(of: processor))))...")
-            let start = Date()
+            let processorName = String(describing: type(of: processor))
+            AppLogger.pipeline.info("session phase=processing engine=\(engineName) processor=\(processorName) input_chars=\(cleaned.count)")
+            let processingStart = Date()
             do {
                 processedText = try await processor.process(text: cleaned, systemPrompt: settings.buildSystemPrompt())
-                let elapsed = Date().timeIntervalSince(start)
-                pipelineLog.info("✅ Processed in \(String(format: "%.2f", elapsed))s: '\(processedText)'")
+                // Model proved functional; clear stale failed state from preload download races.
+                if case .failed = textProcessorState { textProcessorState = .loaded }
+                processingMs = Int(Date().timeIntervalSince(processingStart) * 1000)
                 pasteToFrontmostApp(processedText)
                 usedLLM = true
             } catch {
-                pipelineLog.error("❌ Text processing failed: \(error.localizedDescription)")
-                let errMsg = "Processing failed: \(error.localizedDescription)"
+                processingMs = Int(Date().timeIntervalSince(processingStart) * 1000)
+                AppLogger.pipeline.error("session phase=processing_failed engine=\(engineName) error=\(error.localizedDescription) processing_ms=\(processingMs)")
+                let errMsg = friendlyModelError(error, for: "AI")
                 processingError = errMsg
                 Task { @MainActor [weak self] in
                     try? await Task.sleep(nanoseconds: 3_000_000_000)
@@ -458,11 +481,15 @@ final class ConversationController: ObservableObject {
                 processedText = cleaned
             }
         } else {
-            let hasProcessor = self.textProcessor != nil
-            pipelineLog.info("⏭️ Text processing disabled (useLLMProcessing=\(self.settings.useLLMProcessing), processor=\(hasProcessor ? "set" : "nil"))")
             pasteToFrontmostApp(cleaned)
             processedText = cleaned
         }
+
+        let wordCount = processedText.split(separator: " ").count
+        let sessionMs = Int(Date().timeIntervalSince(sessionStart) * 1000)
+
+        // Wide session event — one structured log per recording session
+        AppLogger.pipeline.info("session outcome=success engine=\(engineName) recording_ms=\(Int(recordingDuration * 1000)) words=\(wordCount) chars=\(processedText.count) fillers_removed=\(fillersRemoved) llm=\(usedLLM) processing_ms=\(processingMs) session_ms=\(sessionMs)")
 
         saveToHistory(
             rawTranscript: transcript,
