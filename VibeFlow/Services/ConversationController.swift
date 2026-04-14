@@ -1,4 +1,5 @@
 import Foundation
+import os
 import SwiftUI
 import SwiftData
 import Combine
@@ -75,6 +76,20 @@ final class ConversationController: ObservableObject {
         }
     }
 
+    private func friendlyModelError(_ error: Error, for modelName: String) -> String {
+        let raw = error.localizedDescription
+        if raw.contains("safetensors.") || raw.contains("model.safetensors") {
+            return "The \(modelName) model file is corrupted. Delete the cache in Model Management and retry."
+        }
+        if raw.contains("No such file") || raw.contains("does not exist") {
+            return "The \(modelName) model is missing. Tap Retry to download it."
+        }
+        if raw.contains("network") || raw.contains("internet") || raw.contains("URLError") {
+            return "Download failed. Check your internet connection and retry."
+        }
+        return "Failed to load \(modelName). Tap Retry or choose a different model."
+    }
+
     /// Rebuild engines and eagerly preload models. Called from the Settings Save button.
     /// Runs async so callers can show a loading indicator while this completes.
     func rebuildAndPreload(from settings: AppSettings) async {
@@ -93,10 +108,13 @@ final class ConversationController: ObservableObject {
             speechEngineState = .loading
             AppLogger.pipeline.info("model_preload phase=start model=whisper")
             await whisper.loadModel()
-            speechEngineState = whisper.loadState
             if case .failed(let msg) = whisper.loadState {
+                // Remap raw error to a user-friendly message using a synthetic Error
+                let syntheticError = NSError(domain: "WhisperEngine", code: 0, userInfo: [NSLocalizedDescriptionKey: msg])
+                speechEngineState = .failed(friendlyModelError(syntheticError, for: "Whisper"))
                 AppLogger.pipeline.error("model_preload outcome=error model=whisper error=\(msg)")
             } else {
+                speechEngineState = whisper.loadState
                 AppLogger.pipeline.info("model_preload outcome=success model=whisper")
             }
         } else {
@@ -112,7 +130,7 @@ final class ConversationController: ObservableObject {
                 textProcessorState = .loaded
                 AppLogger.pipeline.info("model_preload outcome=success model=slm")
             } catch {
-                textProcessorState = .failed(error.localizedDescription)
+                textProcessorState = .failed(friendlyModelError(error, for: "AI"))
                 AppLogger.pipeline.error("model_preload outcome=error model=slm error=\(error.localizedDescription)")
             }
         } else {

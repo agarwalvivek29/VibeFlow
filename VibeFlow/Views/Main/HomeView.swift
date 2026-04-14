@@ -129,7 +129,7 @@ struct DashboardView: View {
                 Text("Model failed to load")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(.primary)
-                Text(String(error.prefix(80)))
+                Text(error)
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
                     .lineLimit(2)
