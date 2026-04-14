@@ -30,6 +30,7 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
 
     @Published var transcript: String = ""
     @Published var level: Float = 0.0
+    @Published var bufferLimitReached: Bool = false
 
     // MARK: Audio
 
@@ -99,6 +100,7 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
 
         audioBuffer = []
         transcript = ""
+        bufferLimitReached = false
 
         #if os(macOS)
         var defaultDeviceID: AudioDeviceID = 0
@@ -174,6 +176,10 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
             self.audioBuffer.append(contentsOf: samples)
             if self.audioBuffer.count > self.maxBufferSize {
                 self.audioBuffer = Array(self.audioBuffer.suffix(self.maxBufferSize))
+                if !self.bufferLimitReached {
+                    self.bufferLimitReached = true
+                    AppLogger.audio.warning("recording buffer_overflow=true engine=whisper max_buffer_size=\(self.maxBufferSize) reason=old_audio_dropped")
+                }
             }
             self.updateLevel(from: buffer)
         }
@@ -189,8 +195,12 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
         audioEngine.stop()
         stopLevelTimer()
 
-        let samples = resampleTo16kHz(audioBuffer, from: deviceSampleRate)
-        audioBuffer.removeAll(keepingCapacity: false)
+        // Move buffer out and clear immediately to free raw audio memory
+        // before the resampled copy is allocated
+        var rawBuffer = audioBuffer
+        audioBuffer = []
+        let samples = resampleTo16kHz(rawBuffer, from: deviceSampleRate)
+        rawBuffer = [] // release raw buffer now that resampled copy exists
 
         guard !samples.isEmpty else { return "" }
 
@@ -211,9 +221,11 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
                 language: "en"
             )
 
-            // Transcribe in 30-second chunks to keep memory bounded and avoid
-            // model-level sequence length issues with very long audio.
-            let chunkSize = 30 * 16000 // 30 seconds at 16 kHz
+            // Transcribe in 30-second windows with 2-second overlap to avoid
+            // word splitting at chunk boundaries. Stride by 28s so each chunk
+            // shares a 2s tail/head region with the next, then deduplicate.
+            let chunkSize = 30 * 16000  // 30 seconds at 16 kHz
+            let strideSize = 28 * 16000 // 28 seconds stride (2s overlap)
             var allText: [String] = []
 
             if samples.count <= chunkSize {
@@ -225,12 +237,14 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
                     let end = min(offset + chunkSize, samples.count)
                     let chunk = Array(samples[offset..<end])
                     let results: [TranscriptionResult] = try await kit.transcribe(audioArray: chunk, decodeOptions: options)
-                    allText.append(results.map(\.text).joined(separator: " "))
-                    offset = end
+                    let chunkText = results.map(\.text).joined(separator: " ")
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    allText.append(chunkText)
+                    offset += strideSize
                 }
             }
 
-            let text = allText.joined(separator: " ")
+            let text = Self.stitchOverlappingChunks(allText)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let elapsed = Int(Date().timeIntervalSince(transcribeStart) * 1000)
             AppLogger.audio.info("transcription outcome=success engine=whisper chars=\(text.count) duration_ms=\(elapsed)")
@@ -257,6 +271,44 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
 
     deinit {
         AppLogger.models.info("model_dealloc model=whisper variant=\(self.modelVariant)")
+    }
+
+    // MARK: - Chunk Stitching
+
+    /// Deduplicates overlapping text between consecutive transcription chunks.
+    /// Compares the trailing words of chunk[i] with the leading words of chunk[i+1]
+    /// and removes the longest matching overlap from the next chunk.
+    private static func stitchOverlappingChunks(_ chunks: [String]) -> String {
+        guard !chunks.isEmpty else { return "" }
+        guard chunks.count > 1 else {
+            return chunks[0].trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        var result = chunks[0]
+        for i in 1..<chunks.count {
+            let next = chunks[i]
+            let prevWords = result.split(separator: " ").map(String.init)
+            let nextWords = next.split(separator: " ").map(String.init)
+
+            // Try to find the longest overlap (up to 10 words, covering ~2s of speech)
+            let maxOverlap = min(10, min(prevWords.count, nextWords.count))
+            var bestOverlap = 0
+            for overlapLen in (1...maxOverlap).reversed() {
+                let tail = prevWords.suffix(overlapLen).map { $0.lowercased() }
+                let head = nextWords.prefix(overlapLen).map { $0.lowercased() }
+                if tail == head {
+                    bestOverlap = overlapLen
+                    break
+                }
+            }
+
+            let dedupedNext = nextWords.dropFirst(bestOverlap).joined(separator: " ")
+            if !dedupedNext.isEmpty {
+                result += " " + dedupedNext
+            }
+        }
+
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - Resampling

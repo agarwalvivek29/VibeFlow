@@ -280,7 +280,7 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
             // 3. Set a timeout in case isFinal never comes.
             //    Scale with recording duration: longer recordings need more processing time.
             let recordingDuration = self.recordingStartedAt.map { Date().timeIntervalSince($0) } ?? 0
-            let timeout = max(5.0, min(recordingDuration * 0.1, 15.0))
+            let timeout = max(3.0, min(recordingDuration * 0.05, 8.0))
             self.recordingStartedAt = nil
             DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { [weak self] in
                 guard let self = self, self.isWaitingForFinal, !self.hasResumedContinuation else { return }
