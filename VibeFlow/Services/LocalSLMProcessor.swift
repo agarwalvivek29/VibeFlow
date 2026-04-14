@@ -20,7 +20,7 @@ final class LocalSLMProcessor: TextProcessingService {
 
     private var modelContainer: ModelContainer?
     private let modelId = "mlx-community/Qwen2.5-0.5B-Instruct-4bit"
-    private let maxTokens = 512
+    private let maxOutputChars = 8192
 
     // MARK: - TextProcessingService
 
@@ -60,11 +60,19 @@ final class LocalSLMProcessor: TextProcessingService {
             switch generation {
             case .chunk(let chunk):
                 output += chunk
-                if output.count >= maxTokens { break outer }
+                if output.count >= maxOutputChars { break outer }
             case .info:
                 break
             default:
                 break
+            }
+        }
+
+        // If we hit the cap, trim back to the last sentence boundary to avoid mid-word cuts
+        if output.count >= maxOutputChars {
+            let sentenceEnders: [Character] = [".", "!", "?"]
+            if let lastIdx = output.lastIndex(where: { sentenceEnders.contains($0) }) {
+                output = String(output[...lastIdx])
             }
         }
 

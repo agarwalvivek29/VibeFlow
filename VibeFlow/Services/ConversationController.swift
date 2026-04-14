@@ -439,6 +439,17 @@ final class ConversationController: ObservableObject {
         let transcript = await speechEngine.stopAndWaitForFinal()
         let engineName = String(describing: type(of: speechEngine))
 
+        // Warn if Whisper buffer limit was hit (old audio was silently dropped)
+        if let whisper = speechEngine as? WhisperEngine, whisper.bufferLimitReached {
+            processingError = "Recording too long — some early audio was trimmed"
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 4_000_000_000)
+                if self?.processingError == "Recording too long — some early audio was trimmed" {
+                    self?.processingError = nil
+                }
+            }
+        }
+
         isRecording = false
         #if os(macOS)
         HUDWindowController.shared.updatePosition()
