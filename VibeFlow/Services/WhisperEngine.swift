@@ -33,7 +33,7 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
 
     // MARK: Audio
 
-    private let audioEngine = AVAudioEngine()
+    private var audioEngine = AVAudioEngine()
     private var audioBuffer: [Float] = []
     private var deviceSampleRate: Double = 16000
     private let maxBufferSize = 14_400_000 // 5 minutes at 48 kHz
@@ -90,17 +90,19 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
     func startRecording(contextualTerms: [String]) throws {
         self.contextualTerms = contextualTerms
 
+        // Tear down old engine completely
         if audioEngine.isRunning {
             audioEngine.stop()
         }
         audioEngine.inputNode.removeTap(onBus: 0)
-        audioEngine.reset()
+        audioEngine.stop()
         stopLevelTimer()
 
         audioBuffer = []
         transcript = ""
 
         #if os(macOS)
+        // 1. Query the default input device via CoreAudio BEFORE touching the engine
         var defaultDeviceID: AudioDeviceID = 0
         var propertyAddress = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDefaultInputDevice,
@@ -138,9 +140,10 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
             deviceSampleRate = 48000
         }
 
-        if audioEngine.isRunning { audioEngine.stop() }
-        audioEngine.reset()
+        // 2. Create a fresh AVAudioEngine so inputNode binds to the correct device
+        audioEngine = AVAudioEngine()
 
+        // 3. Now access inputNode — it will be created fresh, unbound
         let inputNode = audioEngine.inputNode
         if let audioUnit = inputNode.audioUnit {
             var deviceIDToSet = defaultDeviceID
@@ -151,7 +154,9 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
             )
         }
 
+        // 4. Query format AFTER device is set on the fresh engine
         let hardwareFormat = inputNode.inputFormat(forBus: 0)
+        AppLogger.audio.info("audio_format channels=\(hardwareFormat.channelCount) sample_rate=\(Int(hardwareFormat.sampleRate))")
         let tapFormat: AVAudioFormat?
         if hardwareFormat.sampleRate > 0, hardwareFormat.channelCount > 0 {
             tapFormat = hardwareFormat
@@ -160,12 +165,11 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
             tapFormat = nil
         }
         #else
+        audioEngine = AVAudioEngine()
         let inputNode = audioEngine.inputNode
         let tapFormat = inputNode.outputFormat(forBus: 0)
         deviceSampleRate = tapFormat.sampleRate
         #endif
-
-        inputNode.removeTap(onBus: 0)
 
         inputNode.installTap(onBus: 0, bufferSize: 4096, format: tapFormat) { [weak self] buffer, _ in
             guard let self, let channelData = buffer.floatChannelData else { return }

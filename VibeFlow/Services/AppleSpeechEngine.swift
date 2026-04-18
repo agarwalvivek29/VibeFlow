@@ -12,7 +12,7 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
     @Published var transcript: String = ""
     @Published var level: Float = 0.0 // 0...1 for waveform UI
 
-    private let audioEngine = AVAudioEngine()
+    private var audioEngine = AVAudioEngine()
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
     private let speechRecognizer = SFSpeechRecognizer()
@@ -38,21 +38,18 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
     func startRecording(contextualTerms: [String] = []) throws {
         AppLogger.audio.info("recording phase=start engine=apple")
 
-        // Ensure clean state with proper cleanup
+        // Tear down old engine completely
         if audioEngine.isRunning {
             AppLogger.audio.info("recording phase=cleanup reason=engine_still_running")
             audioEngine.stop()
         }
         audioEngine.inputNode.removeTap(onBus: 0)
+        audioEngine.stop()
         recognitionTask?.cancel()
         recognitionTask = nil
         recognitionRequest?.endAudio()
         recognitionRequest = nil
-        audioEngine.reset()
         stopLevelTimer()
-
-        // Small delay to ensure I/O thread fully terminates
-        Thread.sleep(forTimeInterval: 0.05)
 
         transcript = ""
 
@@ -62,7 +59,7 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
         }
 
         #if os(macOS)
-        // Get the system default input device
+        // 1. Query the default input device via CoreAudio BEFORE touching the engine
         var defaultDeviceID: AudioDeviceID = 0
         var propertyAddress = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDefaultInputDevice,
@@ -121,13 +118,10 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
             AppLogger.audio.info("audio_device sample_rate=\(Int(sampleRate)) source=fallback reason=query_failed")
         }
 
-        // Stop and reset audio engine to ensure clean state
-        if audioEngine.isRunning {
-            audioEngine.stop()
-        }
-        audioEngine.reset()
+        // 2. Create a fresh AVAudioEngine so inputNode binds to the correct device
+        audioEngine = AVAudioEngine()
 
-        // Set the input device on the audio unit
+        // 3. Now access inputNode — it will be created fresh, unbound
         let inputNode = audioEngine.inputNode
         if let audioUnit = inputNode.audioUnit {
             var deviceIDToSet = defaultDeviceID
@@ -144,12 +138,10 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
             }
         }
 
-        // Get the format AFTER setting the device - use the hardware format
+        // 4. Query format AFTER device is set on the fresh engine
         let hardwareFormat = inputNode.inputFormat(forBus: 0)
         AppLogger.audio.info("audio_format channels=\(hardwareFormat.channelCount) sample_rate=\(Int(hardwareFormat.sampleRate))")
 
-        // Use nil format to let AVAudioEngine handle format conversion automatically
-        // This is more robust for different audio devices (especially Bluetooth)
         let tapFormat: AVAudioFormat?
         if hardwareFormat.sampleRate > 0 && hardwareFormat.channelCount > 0 {
             tapFormat = hardwareFormat
@@ -159,6 +151,7 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
             AppLogger.audio.info("audio_tap format=automatic")
         }
         #else
+        audioEngine = AVAudioEngine()
         let inputNode = audioEngine.inputNode
         let tapFormat = inputNode.outputFormat(forBus: 0)
         #endif
@@ -168,10 +161,6 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
         request.contextualStrings = contextualTerms
         self.recognitionRequest = request
 
-        // Remove any existing tap
-        inputNode.removeTap(onBus: 0)
-
-        // Install tap with the compatible format
         inputNode.installTap(onBus: 0, bufferSize: 4096, format: tapFormat) { [weak self] buffer, time in
             self?.recognitionRequest?.append(buffer)
             self?.updateLevel(from: buffer)
