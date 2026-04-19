@@ -17,6 +17,7 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
     private var recognitionTask: SFSpeechRecognitionTask?
     private let speechRecognizer = SFSpeechRecognizer()
     private var levelTimer: Timer?
+    private var engineConfiguredForDevice: AudioDeviceID = 0
 
     // Continuation for async stop - waits for isFinal
     private var stopContinuation: CheckedContinuation<String, Never>?
@@ -37,14 +38,12 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
     func startRecording(contextualTerms: [String] = [], preferredDeviceUID: String? = nil) throws {
         AppLogger.audio.info("recording phase=start engine=apple")
 
-        // Clean stop — remove tap, stop engine, reset
+        // Remove old tap, cancel old recognition
         audioEngine.inputNode.removeTap(onBus: 0)
-        if audioEngine.isRunning { audioEngine.stop() }
         recognitionTask?.cancel()
         recognitionTask = nil
         recognitionRequest?.endAudio()
         recognitionRequest = nil
-        audioEngine.reset()
         stopLevelTimer()
 
         transcript = ""
@@ -55,19 +54,51 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
         }
 
         #if os(macOS)
-        // Log available input devices for diagnostics
+        // Log available input devices
         let allDevices = AudioDeviceManager.listInputDevices()
         let deviceList = allDevices.map { "\($0.name) (uid=\($0.uid), rate=\(Int($0.sampleRate)))" }.joined(separator: ", ")
         AppLogger.audio.info("audio_devices engine=apple count=\(allDevices.count) devices=[\(deviceList)]")
 
-        // Get the REAL default input device's sample rate (not the aggregate device's rate).
-        let defaultDevice = AudioDeviceManager.getDefaultInputDevice()
-        let realSampleRate = defaultDevice?.sampleRate ?? 48000
-        AppLogger.audio.info("audio_device_resolution engine=apple device=\(defaultDevice?.name ?? "unknown") device_id=\(defaultDevice?.id ?? 0) real_rate=\(Int(realSampleRate))")
+        // Resolve the target device
+        let targetDevice: AudioInputDevice?
+        if let uid = preferredDeviceUID, let device = allDevices.first(where: { $0.uid == uid }) {
+            targetDevice = device
+        } else {
+            targetDevice = AudioDeviceManager.getDefaultInputDevice()
+        }
 
-        let tapFormat = AVAudioFormat(standardFormatWithSampleRate: realSampleRate, channels: 1)
+        guard let device = targetDevice else {
+            AppLogger.audio.error("recording outcome=error engine=apple reason=no_input_device")
+            throw NSError(domain: "AppleSpeechEngine", code: 2, userInfo: [NSLocalizedDescriptionKey: "No input device available"])
+        }
+
+        AppLogger.audio.info("audio_device_resolution engine=apple device=\(device.name) device_id=\(device.id) rate=\(Int(device.sampleRate))")
+
+        // Only reconfigure if device changed or engine isn't running
+        let needsEngineRestart = !audioEngine.isRunning || device.id != engineConfiguredForDevice
+        if needsEngineRestart {
+            if audioEngine.isRunning { audioEngine.stop() }
+            audioEngine.reset()
+
+            let inputNode = audioEngine.inputNode
+            if let audioUnit = inputNode.audioUnit {
+                var deviceIDToSet = device.id
+                let setStatus = AudioUnitSetProperty(
+                    audioUnit, kAudioOutputUnitProperty_CurrentDevice,
+                    kAudioUnitScope_Global, 0,
+                    &deviceIDToSet, UInt32(MemoryLayout<AudioDeviceID>.size)
+                )
+                AppLogger.audio.info("audio_unit_set_device engine=apple status=\(setStatus) device_id=\(device.id) device=\(device.name)")
+            }
+            engineConfiguredForDevice = device.id
+        } else {
+            AppLogger.audio.info("audio_engine engine=apple reusing_running device=\(device.name)")
+        }
+
+        let tapFormat = AVAudioFormat(standardFormatWithSampleRate: device.sampleRate, channels: 1)
         #else
         let tapFormat: AVAudioFormat? = nil
+        let needsEngineRestart = !audioEngine.isRunning
         #endif
 
         let inputNode = audioEngine.inputNode
@@ -82,9 +113,11 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
             self?.updateLevel(from: buffer)
         }
 
-        audioEngine.prepare()
-        try audioEngine.start()
-        AppLogger.audio.info("recording phase=active engine=apple sample_rate=\(Int(realSampleRate)) running=\(self.audioEngine.isRunning)")
+        if needsEngineRestart {
+            audioEngine.prepare()
+            try audioEngine.start()
+        }
+        AppLogger.audio.info("recording phase=active engine=apple running=\(self.audioEngine.isRunning) engine_restarted=\(needsEngineRestart)")
 
         recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
             guard let self = self else { return }
@@ -135,8 +168,8 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
             self.stopContinuation = continuation
             self.isWaitingForFinal = true
 
+            // Remove tap but keep engine running to avoid I/O thread restart
             self.audioEngine.inputNode.removeTap(onBus: 0)
-            self.audioEngine.stop()
             self.stopLevelTimer()
             AppLogger.audio.info("recording phase=waiting_for_final engine=apple")
 
@@ -169,6 +202,7 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
         audioEngine.inputNode.removeTap(onBus: 0)
         audioEngine.stop()
         audioEngine.reset()
+        engineConfiguredForDevice = 0
 
         stopLevelTimer()
     }
@@ -178,7 +212,6 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
         AppLogger.audio.info("recording phase=cleanup engine=apple")
         recognitionTask = nil
         recognitionRequest = nil
-        audioEngine.reset()
     }
 
     private func startLevelTimer() {

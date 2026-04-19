@@ -37,6 +37,7 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
     private var audioBuffer: [Float] = []
     private var deviceSampleRate: Double = 16000
     private let maxBufferSize = 14_400_000 // 5 minutes at 48 kHz
+    private var engineConfiguredForDevice: AudioDeviceID = 0
 
     // MARK: Whisper
 
@@ -90,32 +91,67 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
     func startRecording(contextualTerms: [String], preferredDeviceUID: String? = nil) throws {
         self.contextualTerms = contextualTerms
 
-        // Clean stop — remove tap, stop engine, reset
+        // Remove old tap — but do NOT stop the engine if it's already configured for the right device
         audioEngine.inputNode.removeTap(onBus: 0)
-        if audioEngine.isRunning { audioEngine.stop() }
-        audioEngine.reset()
         stopLevelTimer()
 
         audioBuffer = []
         transcript = ""
 
         #if os(macOS)
-        // Log available input devices for diagnostics
+        // Log available input devices
         let allDevices = AudioDeviceManager.listInputDevices()
         let deviceList = allDevices.map { "\($0.name) (uid=\($0.uid), rate=\(Int($0.sampleRate)))" }.joined(separator: ", ")
         AppLogger.audio.info("audio_devices engine=whisper count=\(allDevices.count) devices=[\(deviceList)]")
 
-        // Get the REAL default input device's sample rate (not the aggregate device's rate).
-        // macOS creates a CADefaultDeviceAggregate for Bluetooth that reports a wrong rate
-        // (e.g. 44100) while the actual BT hardware runs at 16000. We must match the real rate.
-        let defaultDevice = AudioDeviceManager.getDefaultInputDevice()
-        let realSampleRate = defaultDevice?.sampleRate ?? 48000
-        deviceSampleRate = realSampleRate
-        AppLogger.audio.info("audio_device_resolution engine=whisper device=\(defaultDevice?.name ?? "unknown") device_id=\(defaultDevice?.id ?? 0) real_rate=\(Int(realSampleRate))")
+        // Resolve the target device
+        let targetDevice: AudioInputDevice?
+        if let uid = preferredDeviceUID, let device = allDevices.first(where: { $0.uid == uid }) {
+            targetDevice = device
+        } else {
+            targetDevice = AudioDeviceManager.getDefaultInputDevice()
+        }
 
-        let tapFormat = AVAudioFormat(standardFormatWithSampleRate: realSampleRate, channels: 1)
+        guard let device = targetDevice else {
+            AppLogger.audio.error("recording outcome=error engine=whisper reason=no_input_device")
+            throw NSError(domain: "WhisperEngine", code: 2,
+                          userInfo: [NSLocalizedDescriptionKey: "No input device available"])
+        }
+
+        deviceSampleRate = device.sampleRate
+        AppLogger.audio.info("audio_device_resolution engine=whisper device=\(device.name) device_id=\(device.id) rate=\(Int(device.sampleRate))")
+
+        // Only reconfigure the engine if the device changed or engine isn't running.
+        // Keeping the engine alive between recordings avoids the CoreAudio I/O thread
+        // restart issue (HALB_IOThread: there already is a thread).
+        let needsEngineRestart = !audioEngine.isRunning || device.id != engineConfiguredForDevice
+        if needsEngineRestart {
+            if audioEngine.isRunning { audioEngine.stop() }
+            audioEngine.reset()
+
+            // Point the engine at the REAL device, bypassing the CADefaultDeviceAggregate.
+            // Without this, AVAudioEngine connects to the aggregate device which reports
+            // a wrong sample rate (e.g. 44100) while the actual BT hardware is 16000.
+            let inputNode = audioEngine.inputNode
+            if let audioUnit = inputNode.audioUnit {
+                var deviceIDToSet = device.id
+                let setStatus = AudioUnitSetProperty(
+                    audioUnit, kAudioOutputUnitProperty_CurrentDevice,
+                    kAudioUnitScope_Global, 0,
+                    &deviceIDToSet, UInt32(MemoryLayout<AudioDeviceID>.size)
+                )
+                AppLogger.audio.info("audio_unit_set_device engine=whisper status=\(setStatus) device_id=\(device.id) device=\(device.name)")
+            }
+            engineConfiguredForDevice = device.id
+        } else {
+            AppLogger.audio.info("audio_engine engine=whisper reusing_running device=\(device.name)")
+        }
+
+        // Use the real device's format for the tap
+        let tapFormat = AVAudioFormat(standardFormatWithSampleRate: device.sampleRate, channels: 1)
         #else
         let tapFormat: AVAudioFormat? = nil
+        let needsEngineRestart = !audioEngine.isRunning
         #endif
 
         let inputNode = audioEngine.inputNode
@@ -131,15 +167,17 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
             self.updateLevel(from: buffer)
         }
 
-        audioEngine.prepare()
-        try audioEngine.start()
-        AppLogger.audio.info("recording phase=active engine=whisper sample_rate=\(Int(self.deviceSampleRate))")
+        if needsEngineRestart {
+            audioEngine.prepare()
+            try audioEngine.start()
+        }
+        AppLogger.audio.info("recording phase=active engine=whisper sample_rate=\(Int(self.deviceSampleRate)) engine_restarted=\(needsEngineRestart)")
         startLevelTimer()
     }
 
     func stopAndWaitForFinal() async -> String {
+        // Remove tap but keep engine running — avoids I/O thread restart on next recording
         audioEngine.inputNode.removeTap(onBus: 0)
-        audioEngine.stop()
         stopLevelTimer()
 
         let samples = resampleTo16kHz(audioBuffer, from: deviceSampleRate)
@@ -185,6 +223,7 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
         audioEngine.inputNode.removeTap(onBus: 0)
         audioEngine.stop()
         audioEngine.reset()
+        engineConfiguredForDevice = 0
         stopLevelTimer()
         audioBuffer = []
     }
