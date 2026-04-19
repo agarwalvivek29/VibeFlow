@@ -104,13 +104,21 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
             engineConfiguredForDevice = device.id
         }
 
-        let tapFormat = AVAudioFormat(standardFormatWithSampleRate: device.sampleRate, channels: 1)
         #else
-        let tapFormat: AVAudioFormat? = nil
         let needsNewEngine = !audioEngine.isRunning
         #endif
 
         let inputNode = audioEngine.inputNode
+
+        // Query the engine's ACTUAL hardware format — don't trust our device query.
+        let hwFormat = inputNode.inputFormat(forBus: 0)
+        let tapFormat: AVAudioFormat?
+        if hwFormat.sampleRate > 0 && hwFormat.channelCount > 0 {
+            tapFormat = hwFormat
+        } else {
+            tapFormat = nil
+        }
+        AppLogger.audio.info("audio_tap engine=apple hw_rate=\(Int(hwFormat.sampleRate)) hw_channels=\(hwFormat.channelCount)")
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true

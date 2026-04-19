@@ -154,14 +154,23 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
             engineConfiguredForDevice = device.id
         }
 
-        // Use the real device's format for the tap
-        let tapFormat = AVAudioFormat(standardFormatWithSampleRate: device.sampleRate, channels: 1)
         #else
-        let tapFormat: AVAudioFormat? = nil
         let needsNewEngine = !audioEngine.isRunning
         #endif
 
         let inputNode = audioEngine.inputNode
+
+        // Query the engine's ACTUAL hardware format — don't trust our device query.
+        // When BT is connected, the aggregate device may override the device we set.
+        let hwFormat = inputNode.inputFormat(forBus: 0)
+        let tapFormat: AVAudioFormat?
+        if hwFormat.sampleRate > 0 && hwFormat.channelCount > 0 {
+            tapFormat = hwFormat
+            deviceSampleRate = hwFormat.sampleRate
+        } else {
+            tapFormat = nil
+        }
+        AppLogger.audio.info("audio_tap engine=whisper hw_rate=\(Int(hwFormat.sampleRate)) hw_channels=\(hwFormat.channelCount)")
 
         inputNode.installTap(onBus: 0, bufferSize: 4096, format: tapFormat) { [weak self] buffer, _ in
             guard let self, let channelData = buffer.floatChannelData else { return }
