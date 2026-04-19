@@ -60,12 +60,16 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
         let deviceList = allDevices.map { "\($0.name) (uid=\($0.uid), rate=\(Int($0.sampleRate)))" }.joined(separator: ", ")
         AppLogger.audio.info("audio_devices engine=apple count=\(allDevices.count) devices=[\(deviceList)]")
 
-        if let defaultDevice = AudioDeviceManager.getDefaultInputDevice() {
-            AppLogger.audio.info("audio_device_resolution engine=apple using=system_default device=\(defaultDevice.name) device_id=\(defaultDevice.id) rate=\(Int(defaultDevice.sampleRate))")
-        }
+        // Get the REAL default input device's sample rate (not the aggregate device's rate).
+        let defaultDevice = AudioDeviceManager.getDefaultInputDevice()
+        let realSampleRate = defaultDevice?.sampleRate ?? 48000
+        AppLogger.audio.info("audio_device_resolution engine=apple device=\(defaultDevice?.name ?? "unknown") device_id=\(defaultDevice?.id ?? 0) real_rate=\(Int(realSampleRate))")
+
+        let tapFormat = AVAudioFormat(standardFormatWithSampleRate: realSampleRate, channels: 1)
+        #else
+        let tapFormat: AVAudioFormat? = nil
         #endif
 
-        // Use nil format — let AVAudioEngine handle device selection and format conversion.
         let inputNode = audioEngine.inputNode
 
         let request = SFSpeechAudioBufferRecognitionRequest()
@@ -73,16 +77,14 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
         request.contextualStrings = contextualTerms
         self.recognitionRequest = request
 
-        inputNode.installTap(onBus: 0, bufferSize: 4096, format: nil) { [weak self] buffer, time in
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: tapFormat) { [weak self] buffer, time in
             self?.recognitionRequest?.append(buffer)
             self?.updateLevel(from: buffer)
         }
 
         audioEngine.prepare()
         try audioEngine.start()
-
-        let hwFormat = inputNode.inputFormat(forBus: 0)
-        AppLogger.audio.info("recording phase=active engine=apple sample_rate=\(Int(hwFormat.sampleRate)) hw_channels=\(hwFormat.channelCount) running=\(self.audioEngine.isRunning)")
+        AppLogger.audio.info("recording phase=active engine=apple sample_rate=\(Int(realSampleRate)) running=\(self.audioEngine.isRunning)")
 
         recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
             guard let self = self else { return }

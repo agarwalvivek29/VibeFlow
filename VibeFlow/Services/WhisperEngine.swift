@@ -105,25 +105,24 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
         let deviceList = allDevices.map { "\($0.name) (uid=\($0.uid), rate=\(Int($0.sampleRate)))" }.joined(separator: ", ")
         AppLogger.audio.info("audio_devices engine=whisper count=\(allDevices.count) devices=[\(deviceList)]")
 
-        if let defaultDevice = AudioDeviceManager.getDefaultInputDevice() {
-            AppLogger.audio.info("audio_device_resolution engine=whisper using=system_default device=\(defaultDevice.name) device_id=\(defaultDevice.id) rate=\(Int(defaultDevice.sampleRate))")
-        }
+        // Get the REAL default input device's sample rate (not the aggregate device's rate).
+        // macOS creates a CADefaultDeviceAggregate for Bluetooth that reports a wrong rate
+        // (e.g. 44100) while the actual BT hardware runs at 16000. We must match the real rate.
+        let defaultDevice = AudioDeviceManager.getDefaultInputDevice()
+        let realSampleRate = defaultDevice?.sampleRate ?? 48000
+        deviceSampleRate = realSampleRate
+        AppLogger.audio.info("audio_device_resolution engine=whisper device=\(defaultDevice?.name ?? "unknown") device_id=\(defaultDevice?.id ?? 0) real_rate=\(Int(realSampleRate))")
+
+        let tapFormat = AVAudioFormat(standardFormatWithSampleRate: realSampleRate, channels: 1)
+        #else
+        let tapFormat: AVAudioFormat? = nil
         #endif
 
-        // Use nil format — let AVAudioEngine handle device selection and format conversion.
-        // This avoids AudioUnitSetProperty/I/O thread conflicts with Bluetooth and aggregate devices.
         let inputNode = audioEngine.inputNode
 
-        inputNode.installTap(onBus: 0, bufferSize: 4096, format: nil) { [weak self] buffer, _ in
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: tapFormat) { [weak self] buffer, _ in
             guard let self, let channelData = buffer.floatChannelData else { return }
             let frames = Int(buffer.frameLength)
-
-            // Capture the actual sample rate from the buffer's format (set by the engine)
-            let bufferRate = buffer.format.sampleRate
-            if bufferRate > 0 && bufferRate != self.deviceSampleRate {
-                self.deviceSampleRate = bufferRate
-            }
-
             let samples = Array(UnsafeBufferPointer(start: channelData[0], count: frames))
             self.audioBuffer.append(contentsOf: samples)
             if self.audioBuffer.count > self.maxBufferSize {
@@ -134,10 +133,7 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
 
         audioEngine.prepare()
         try audioEngine.start()
-
-        let hwFormat = inputNode.inputFormat(forBus: 0)
-        deviceSampleRate = hwFormat.sampleRate > 0 ? hwFormat.sampleRate : 48000
-        AppLogger.audio.info("recording phase=active engine=whisper sample_rate=\(Int(self.deviceSampleRate)) hw_channels=\(hwFormat.channelCount)")
+        AppLogger.audio.info("recording phase=active engine=whisper sample_rate=\(Int(self.deviceSampleRate))")
         startLevelTimer()
     }
 
