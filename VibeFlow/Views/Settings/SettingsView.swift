@@ -110,6 +110,7 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 32) {
                         appearanceSection
                         PermissionsSection()
+                        inputDeviceSection
                         recordingHotkeySection
                         speechEngineSection
                         textCleanupSection
@@ -165,6 +166,64 @@ struct SettingsView: View {
             .pickerStyle(.segmented)
         }
     }
+
+    // MARK: - Input Device
+
+    @State private var availableInputDevices: [AudioInputDevice] = []
+
+    private var inputDeviceSection: some View {
+        SettingsSection(title: "Input Device") {
+            VStack(alignment: .leading, spacing: 8) {
+                #if os(macOS)
+                // Apply directly to settings (no draft/save needed — read at recording time)
+                Picker("Microphone", selection: Binding(
+                    get: { settings.preferredInputDeviceUID ?? "" },
+                    set: { newValue in
+                        DispatchQueue.main.async {
+                            self.settings.preferredInputDeviceUID = newValue.isEmpty ? nil : newValue
+                        }
+                    }
+                )) {
+                    let defaultDevice = AudioDeviceManager.getDefaultInputDevice()
+                    let defaultName = defaultDevice?.name ?? "Built-in Microphone"
+                    Text("System Default (\(defaultName))")
+                        .tag("")
+
+                    ForEach(availableInputDevices) { device in
+                        Text("\(device.name) — \(Int(device.sampleRate / 1000))kHz")
+                            .tag(device.uid)
+                    }
+                }
+                .labelsHidden()
+
+                if let selectedUID = settings.preferredInputDeviceUID,
+                   !selectedUID.isEmpty,
+                   let device = availableInputDevices.first(where: { $0.uid == selectedUID }) {
+                    Text("Using \(device.name) at \(Int(device.sampleRate)) Hz")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                } else {
+                    Text("Using the system default input device. Change this if your mic isn't being picked up.")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+                #else
+                Text("Device selection is only available on macOS.")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                #endif
+            }
+            .onAppear { refreshInputDevices() }
+        }
+    }
+
+    private func refreshInputDevices() {
+        #if os(macOS)
+        availableInputDevices = AudioDeviceManager.listInputDevices()
+        #endif
+    }
+
+    // MARK: - Recording Hotkey
 
     private var recordingHotkeySection: some View {
         SettingsSection(title: "Recording Hotkey") {

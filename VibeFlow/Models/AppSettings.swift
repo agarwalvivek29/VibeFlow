@@ -73,6 +73,11 @@ final class AppSettings: ObservableObject {
         didSet { save() }
     }
 
+    // Audio Device Selection
+    @Published var preferredInputDeviceUID: String? {
+        didSet { save() }
+    }
+
     // Computed property for active recording key
     var activeRecordingKey: KeyBinding {
         switch recordingKeyPreset {
@@ -205,6 +210,7 @@ private static let removeFillerKey = "removeFiller"
     private static let textCleanupEngineKey = "textCleanupEngine"
     private static let whisperModelSizeKey = "whisperModelSize"
     private static let appColorSchemeKey = "appColorScheme"
+    private static let preferredInputDeviceUIDKey = "preferredInputDeviceUID"
 
     init() {
         self.liteLLMBaseURL = Self.defaults.string(forKey: Self.baseURLKey) ?? "http://127.0.0.1:4000"
@@ -279,6 +285,8 @@ self.removeFiller = Self.defaults.bool(forKey: Self.removeFillerKey) || !Self.de
         } else {
             self.appColorScheme = .system
         }
+
+        self.preferredInputDeviceUID = Self.defaults.string(forKey: Self.preferredInputDeviceUIDKey)
     }
 
     private func save() {
@@ -313,6 +321,12 @@ self.removeFiller = Self.defaults.bool(forKey: Self.removeFillerKey) || !Self.de
         Self.defaults.set(textCleanupEngine.rawValue, forKey: Self.textCleanupEngineKey)
         Self.defaults.set(whisperModelSize.rawValue, forKey: Self.whisperModelSizeKey)
         Self.defaults.set(appColorScheme.rawValue, forKey: Self.appColorSchemeKey)
+
+        if let uid = preferredInputDeviceUID {
+            Self.defaults.set(uid, forKey: Self.preferredInputDeviceUIDKey)
+        } else {
+            Self.defaults.removeObject(forKey: Self.preferredInputDeviceUIDKey)
+        }
     }
 
     func buildSystemPrompt() -> String {

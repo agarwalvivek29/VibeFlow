@@ -33,7 +33,7 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
 
     // MARK: Audio
 
-    private var audioEngine = AVAudioEngine()
+    private let audioEngine = AVAudioEngine()
     private var audioBuffer: [Float] = []
     private var deviceSampleRate: Double = 16000
     private let maxBufferSize = 14_400_000 // 5 minutes at 48 kHz
@@ -87,93 +87,43 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
 
     // MARK: - SpeechRecognitionService
 
-    func startRecording(contextualTerms: [String]) throws {
+    func startRecording(contextualTerms: [String], preferredDeviceUID: String? = nil) throws {
         self.contextualTerms = contextualTerms
 
-        // Tear down old engine completely
-        if audioEngine.isRunning {
-            audioEngine.stop()
-        }
+        // Clean stop — remove tap, stop engine, reset
         audioEngine.inputNode.removeTap(onBus: 0)
-        audioEngine.stop()
+        if audioEngine.isRunning { audioEngine.stop() }
+        audioEngine.reset()
         stopLevelTimer()
 
         audioBuffer = []
         transcript = ""
 
         #if os(macOS)
-        // 1. Query the default input device via CoreAudio BEFORE touching the engine
-        var defaultDeviceID: AudioDeviceID = 0
-        var propertyAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultInputDevice,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var propertySize = UInt32(MemoryLayout<AudioDeviceID>.size)
+        // Log available input devices for diagnostics
+        let allDevices = AudioDeviceManager.listInputDevices()
+        let deviceList = allDevices.map { "\($0.name) (uid=\($0.uid), rate=\(Int($0.sampleRate)))" }.joined(separator: ", ")
+        AppLogger.audio.info("audio_devices engine=whisper count=\(allDevices.count) devices=[\(deviceList)]")
 
-        let status = AudioObjectGetPropertyData(
-            AudioObjectID(kAudioObjectSystemObject),
-            &propertyAddress, 0, nil, &propertySize, &defaultDeviceID
-        )
-
-        guard status == noErr, defaultDeviceID != 0 else {
-            AppLogger.audio.error("recording outcome=error engine=whisper reason=no_input_device")
-            throw NSError(domain: "WhisperEngine", code: 2,
-                          userInfo: [NSLocalizedDescriptionKey: "No input device available"])
+        if let defaultDevice = AudioDeviceManager.getDefaultInputDevice() {
+            AppLogger.audio.info("audio_device_resolution engine=whisper using=system_default device=\(defaultDevice.name) device_id=\(defaultDevice.id) rate=\(Int(defaultDevice.sampleRate))")
         }
-
-        var sampleRate: Float64 = 0
-        var sampleRateSize = UInt32(MemoryLayout<Float64>.size)
-        var sampleRateAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyNominalSampleRate,
-            mScope: kAudioObjectPropertyScopeInput,
-            mElement: kAudioObjectPropertyElementMain
-        )
-
-        let sampleRateStatus = AudioObjectGetPropertyData(
-            defaultDeviceID, &sampleRateAddress, 0, nil, &sampleRateSize, &sampleRate
-        )
-
-        if sampleRateStatus == noErr, sampleRate > 0 {
-            deviceSampleRate = sampleRate
-        } else {
-            deviceSampleRate = 48000
-        }
-
-        // 2. Create a fresh AVAudioEngine so inputNode binds to the correct device
-        audioEngine = AVAudioEngine()
-
-        // 3. Now access inputNode — it will be created fresh, unbound
-        let inputNode = audioEngine.inputNode
-        if let audioUnit = inputNode.audioUnit {
-            var deviceIDToSet = defaultDeviceID
-            AudioUnitSetProperty(
-                audioUnit, kAudioOutputUnitProperty_CurrentDevice,
-                kAudioUnitScope_Global, 0,
-                &deviceIDToSet, UInt32(MemoryLayout<AudioDeviceID>.size)
-            )
-        }
-
-        // 4. Query format AFTER device is set on the fresh engine
-        let hardwareFormat = inputNode.inputFormat(forBus: 0)
-        AppLogger.audio.info("audio_format channels=\(hardwareFormat.channelCount) sample_rate=\(Int(hardwareFormat.sampleRate))")
-        let tapFormat: AVAudioFormat?
-        if hardwareFormat.sampleRate > 0, hardwareFormat.channelCount > 0 {
-            tapFormat = hardwareFormat
-            deviceSampleRate = hardwareFormat.sampleRate
-        } else {
-            tapFormat = nil
-        }
-        #else
-        audioEngine = AVAudioEngine()
-        let inputNode = audioEngine.inputNode
-        let tapFormat = inputNode.outputFormat(forBus: 0)
-        deviceSampleRate = tapFormat.sampleRate
         #endif
 
-        inputNode.installTap(onBus: 0, bufferSize: 4096, format: tapFormat) { [weak self] buffer, _ in
+        // Use nil format — let AVAudioEngine handle device selection and format conversion.
+        // This avoids AudioUnitSetProperty/I/O thread conflicts with Bluetooth and aggregate devices.
+        let inputNode = audioEngine.inputNode
+
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: nil) { [weak self] buffer, _ in
             guard let self, let channelData = buffer.floatChannelData else { return }
             let frames = Int(buffer.frameLength)
+
+            // Capture the actual sample rate from the buffer's format (set by the engine)
+            let bufferRate = buffer.format.sampleRate
+            if bufferRate > 0 && bufferRate != self.deviceSampleRate {
+                self.deviceSampleRate = bufferRate
+            }
+
             let samples = Array(UnsafeBufferPointer(start: channelData[0], count: frames))
             self.audioBuffer.append(contentsOf: samples)
             if self.audioBuffer.count > self.maxBufferSize {
@@ -184,7 +134,10 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
 
         audioEngine.prepare()
         try audioEngine.start()
-        AppLogger.audio.info("recording phase=active engine=whisper sample_rate=\(Int(self.deviceSampleRate))")
+
+        let hwFormat = inputNode.inputFormat(forBus: 0)
+        deviceSampleRate = hwFormat.sampleRate > 0 ? hwFormat.sampleRate : 48000
+        AppLogger.audio.info("recording phase=active engine=whisper sample_rate=\(Int(self.deviceSampleRate)) hw_channels=\(hwFormat.channelCount)")
         startLevelTimer()
     }
 

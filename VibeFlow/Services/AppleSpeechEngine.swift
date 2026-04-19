@@ -12,11 +12,10 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
     @Published var transcript: String = ""
     @Published var level: Float = 0.0 // 0...1 for waveform UI
 
-    private var audioEngine = AVAudioEngine()
+    private let audioEngine = AVAudioEngine()
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
     private let speechRecognizer = SFSpeechRecognizer()
-
     private var levelTimer: Timer?
 
     // Continuation for async stop - waits for isFinal
@@ -35,20 +34,17 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
         // No-op on macOS
     }
 
-    func startRecording(contextualTerms: [String] = []) throws {
+    func startRecording(contextualTerms: [String] = [], preferredDeviceUID: String? = nil) throws {
         AppLogger.audio.info("recording phase=start engine=apple")
 
-        // Tear down old engine completely
-        if audioEngine.isRunning {
-            AppLogger.audio.info("recording phase=cleanup reason=engine_still_running")
-            audioEngine.stop()
-        }
+        // Clean stop — remove tap, stop engine, reset
         audioEngine.inputNode.removeTap(onBus: 0)
-        audioEngine.stop()
+        if audioEngine.isRunning { audioEngine.stop() }
         recognitionTask?.cancel()
         recognitionTask = nil
         recognitionRequest?.endAudio()
         recognitionRequest = nil
+        audioEngine.reset()
         stopLevelTimer()
 
         transcript = ""
@@ -59,116 +55,34 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
         }
 
         #if os(macOS)
-        // 1. Query the default input device via CoreAudio BEFORE touching the engine
-        var defaultDeviceID: AudioDeviceID = 0
-        var propertyAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultInputDevice,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var propertySize = UInt32(MemoryLayout<AudioDeviceID>.size)
+        // Log available input devices for diagnostics
+        let allDevices = AudioDeviceManager.listInputDevices()
+        let deviceList = allDevices.map { "\($0.name) (uid=\($0.uid), rate=\(Int($0.sampleRate)))" }.joined(separator: ", ")
+        AppLogger.audio.info("audio_devices engine=apple count=\(allDevices.count) devices=[\(deviceList)]")
 
-        let status = AudioObjectGetPropertyData(
-            AudioObjectID(kAudioObjectSystemObject),
-            &propertyAddress,
-            0,
-            nil,
-            &propertySize,
-            &defaultDeviceID
-        )
-
-        guard status == noErr, defaultDeviceID != 0 else {
-            AppLogger.audio.error("recording outcome=error engine=apple reason=no_input_device")
-            throw NSError(domain: "AppleSpeechEngine", code: 2, userInfo: [NSLocalizedDescriptionKey: "No input device available"])
+        if let defaultDevice = AudioDeviceManager.getDefaultInputDevice() {
+            AppLogger.audio.info("audio_device_resolution engine=apple using=system_default device=\(defaultDevice.name) device_id=\(defaultDevice.id) rate=\(Int(defaultDevice.sampleRate))")
         }
-
-        // Get device name for logging
-        var deviceName: CFString = "" as CFString
-        var nameSize = UInt32(MemoryLayout<CFString>.size)
-        var nameAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyDeviceNameCFString,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        AudioObjectGetPropertyData(defaultDeviceID, &nameAddress, 0, nil, &nameSize, &deviceName)
-        AppLogger.audio.info("audio_device selected=\(deviceName as String) device_id=\(defaultDeviceID)")
-
-        // Get the device's native sample rate
-        var sampleRate: Float64 = 0
-        var sampleRateSize = UInt32(MemoryLayout<Float64>.size)
-        var sampleRateAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyNominalSampleRate,
-            mScope: kAudioObjectPropertyScopeInput,
-            mElement: kAudioObjectPropertyElementMain
-        )
-
-        let sampleRateStatus = AudioObjectGetPropertyData(
-            defaultDeviceID,
-            &sampleRateAddress,
-            0,
-            nil,
-            &sampleRateSize,
-            &sampleRate
-        )
-
-        if sampleRateStatus == noErr && sampleRate > 0 {
-            AppLogger.audio.info("audio_device sample_rate=\(Int(sampleRate)) source=native")
-        } else {
-            sampleRate = 48000 // Fallback
-            AppLogger.audio.info("audio_device sample_rate=\(Int(sampleRate)) source=fallback reason=query_failed")
-        }
-
-        // 2. Create a fresh AVAudioEngine so inputNode binds to the correct device
-        audioEngine = AVAudioEngine()
-
-        // 3. Now access inputNode — it will be created fresh, unbound
-        let inputNode = audioEngine.inputNode
-        if let audioUnit = inputNode.audioUnit {
-            var deviceIDToSet = defaultDeviceID
-            let setStatus = AudioUnitSetProperty(
-                audioUnit,
-                kAudioOutputUnitProperty_CurrentDevice,
-                kAudioUnitScope_Global,
-                0,
-                &deviceIDToSet,
-                UInt32(MemoryLayout<AudioDeviceID>.size)
-            )
-            if setStatus != noErr {
-                AppLogger.audio.error("audio_device outcome=set_failed status=\(setStatus)")
-            }
-        }
-
-        // 4. Query format AFTER device is set on the fresh engine
-        let hardwareFormat = inputNode.inputFormat(forBus: 0)
-        AppLogger.audio.info("audio_format channels=\(hardwareFormat.channelCount) sample_rate=\(Int(hardwareFormat.sampleRate))")
-
-        let tapFormat: AVAudioFormat?
-        if hardwareFormat.sampleRate > 0 && hardwareFormat.channelCount > 0 {
-            tapFormat = hardwareFormat
-            AppLogger.audio.info("audio_tap format=hardware")
-        } else {
-            tapFormat = nil
-            AppLogger.audio.info("audio_tap format=automatic")
-        }
-        #else
-        audioEngine = AVAudioEngine()
-        let inputNode = audioEngine.inputNode
-        let tapFormat = inputNode.outputFormat(forBus: 0)
         #endif
+
+        // Use nil format — let AVAudioEngine handle device selection and format conversion.
+        let inputNode = audioEngine.inputNode
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         request.contextualStrings = contextualTerms
         self.recognitionRequest = request
 
-        inputNode.installTap(onBus: 0, bufferSize: 4096, format: tapFormat) { [weak self] buffer, time in
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: nil) { [weak self] buffer, time in
             self?.recognitionRequest?.append(buffer)
             self?.updateLevel(from: buffer)
         }
 
         audioEngine.prepare()
         try audioEngine.start()
-        AppLogger.audio.info("recording phase=active engine=apple running=\(self.audioEngine.isRunning)")
+
+        let hwFormat = inputNode.inputFormat(forBus: 0)
+        AppLogger.audio.info("recording phase=active engine=apple sample_rate=\(Int(hwFormat.sampleRate)) hw_channels=\(hwFormat.channelCount) running=\(self.audioEngine.isRunning)")
 
         recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
             guard let self = self else { return }
@@ -180,7 +94,6 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
                 }
 
                 if result.isFinal {
-                    // Resume continuation if we're waiting for final
                     if self.isWaitingForFinal, !self.hasResumedContinuation {
                         self.hasResumedContinuation = true
                         self.isWaitingForFinal = false
@@ -193,7 +106,6 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
 
             if let error = error {
                 AppLogger.audio.error("recognition outcome=error engine=apple error=\(error.localizedDescription)")
-                // Resume continuation with whatever we have
                 if self.isWaitingForFinal, !self.hasResumedContinuation {
                     self.hasResumedContinuation = true
                     self.isWaitingForFinal = false
@@ -208,11 +120,9 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
     }
 
     /// Stops recording and waits for the final transcription result
-    /// This ensures all buffered audio is processed and no words are lost
     func stopAndWaitForFinal() async -> String {
         AppLogger.audio.info("recording phase=stop_and_wait engine=apple transcript_chars=\(self.transcript.count)")
 
-        // If not recording, return current transcript
         guard audioEngine.isRunning else {
             AppLogger.audio.info("recording phase=stop_and_wait engine=apple reason=engine_not_running")
             return transcript
@@ -223,17 +133,13 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
             self.stopContinuation = continuation
             self.isWaitingForFinal = true
 
-            // 1. Stop capturing NEW audio
             self.audioEngine.inputNode.removeTap(onBus: 0)
             self.audioEngine.stop()
             self.stopLevelTimer()
             AppLogger.audio.info("recording phase=waiting_for_final engine=apple")
 
-            // 2. Signal end of audio - recognizer will process remaining buffer
-            //    and eventually call back with isFinal = true
             self.recognitionRequest?.endAudio()
 
-            // 3. Set a timeout in case isFinal never comes
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
                 guard let self = self, self.isWaitingForFinal, !self.hasResumedContinuation else { return }
                 AppLogger.audio.info("recording phase=timeout_fallback engine=apple transcript_chars=\(self.transcript.count)")
@@ -247,7 +153,6 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
     }
 
     /// Immediately stops recording without waiting for final result
-    /// Use this for cleanup or when you don't need the transcript
     func stop() {
         AppLogger.audio.info("recording phase=stop engine=apple transcript_chars=\(self.transcript.count)")
 
