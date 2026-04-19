@@ -171,17 +171,21 @@ struct SettingsView: View {
 
     @State private var availableInputDevices: [AudioInputDevice] = []
     @State private var defaultDeviceName: String = "Built-in Microphone"
+    @State private var showRestartAlert = false
+    @State private var pendingDeviceUID: String?
 
     private var inputDeviceSection: some View {
         SettingsSection(title: "Input Device") {
             VStack(alignment: .leading, spacing: 8) {
                 #if os(macOS)
-                // Apply directly to settings (no draft/save needed — read at recording time)
                 Picker("Microphone", selection: Binding(
                     get: { settings.preferredInputDeviceUID ?? "" },
                     set: { newValue in
-                        DispatchQueue.main.async {
-                            self.settings.preferredInputDeviceUID = newValue.isEmpty ? nil : newValue
+                        let newUID = newValue.isEmpty ? nil : newValue
+                        let oldUID = settings.preferredInputDeviceUID
+                        if newUID != oldUID {
+                            pendingDeviceUID = newUID
+                            showRestartAlert = true
                         }
                     }
                 )) {
@@ -194,6 +198,17 @@ struct SettingsView: View {
                     }
                 }
                 .labelsHidden()
+                .alert("Restart Required", isPresented: $showRestartAlert) {
+                    Button("Restart Now") {
+                        settings.preferredInputDeviceUID = pendingDeviceUID
+                        restartApp()
+                    }
+                    Button("Cancel", role: .cancel) {
+                        pendingDeviceUID = nil
+                    }
+                } message: {
+                    Text("Switching input devices requires restarting the app to reinitialize the audio engine.")
+                }
 
                 if let selectedUID = settings.preferredInputDeviceUID,
                    !selectedUID.isEmpty,
@@ -220,6 +235,19 @@ struct SettingsView: View {
         #if os(macOS)
         availableInputDevices = AudioDeviceManager.listInputDevices()
         defaultDeviceName = AudioDeviceManager.getDefaultInputDevice()?.name ?? "Built-in Microphone"
+        #endif
+    }
+
+    private func restartApp() {
+        #if os(macOS)
+        let url = Bundle.main.bundleURL
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        task.arguments = ["-n", url.path]
+        try? task.run()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            NSApplication.shared.terminate(nil)
+        }
         #endif
     }
 
