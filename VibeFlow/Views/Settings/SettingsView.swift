@@ -110,6 +110,7 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 32) {
                         appearanceSection
                         PermissionsSection()
+                        inputDeviceSection
                         recordingHotkeySection
                         speechEngineSection
                         textCleanupSection
@@ -165,6 +166,92 @@ struct SettingsView: View {
             .pickerStyle(.segmented)
         }
     }
+
+    // MARK: - Input Device
+
+    @State private var availableInputDevices: [AudioInputDevice] = []
+    @State private var defaultDeviceName: String = "Built-in Microphone"
+    @State private var showRestartAlert = false
+    @State private var pendingDeviceUID: String?
+
+    private var inputDeviceSection: some View {
+        SettingsSection(title: "Input Device") {
+            VStack(alignment: .leading, spacing: 8) {
+                #if os(macOS)
+                Picker("Microphone", selection: Binding(
+                    get: { settings.preferredInputDeviceUID ?? "" },
+                    set: { newValue in
+                        let newUID = newValue.isEmpty ? nil : newValue
+                        let oldUID = settings.preferredInputDeviceUID
+                        if newUID != oldUID {
+                            pendingDeviceUID = newUID
+                            showRestartAlert = true
+                        }
+                    }
+                )) {
+                    Text("System Default (\(defaultDeviceName))")
+                        .tag("")
+
+                    ForEach(availableInputDevices) { device in
+                        Text("\(device.name) — \(Int(device.sampleRate / 1000))kHz")
+                            .tag(device.uid)
+                    }
+                }
+                .labelsHidden()
+                .alert("Restart Required", isPresented: $showRestartAlert) {
+                    Button("Restart Now") {
+                        settings.preferredInputDeviceUID = pendingDeviceUID
+                        restartApp()
+                    }
+                    Button("Cancel", role: .cancel) {
+                        pendingDeviceUID = nil
+                    }
+                } message: {
+                    Text("Switching input devices requires restarting the app to reinitialize the audio engine.")
+                }
+
+                if let selectedUID = settings.preferredInputDeviceUID,
+                   !selectedUID.isEmpty,
+                   let device = availableInputDevices.first(where: { $0.uid == selectedUID }) {
+                    Text("Using \(device.name) at \(Int(device.sampleRate)) Hz")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                } else {
+                    Text("Using the system default input device. Change this if your mic isn't being picked up.")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+                #else
+                Text("Device selection is only available on macOS.")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                #endif
+            }
+            .onAppear { refreshInputDevices() }
+        }
+    }
+
+    private func refreshInputDevices() {
+        #if os(macOS)
+        availableInputDevices = AudioDeviceManager.listInputDevices()
+        defaultDeviceName = AudioDeviceManager.getDefaultInputDevice()?.name ?? "Built-in Microphone"
+        #endif
+    }
+
+    private func restartApp() {
+        #if os(macOS)
+        let url = Bundle.main.bundleURL
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        task.arguments = ["-n", url.path]
+        try? task.run()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            NSApplication.shared.terminate(nil)
+        }
+        #endif
+    }
+
+    // MARK: - Recording Hotkey
 
     private var recordingHotkeySection: some View {
         SettingsSection(title: "Recording Hotkey") {

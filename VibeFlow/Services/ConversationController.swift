@@ -314,7 +314,7 @@ final class ConversationController: ObservableObject {
                 }
             }
 
-            try speechEngine.startRecording(contextualTerms: terms)
+            try speechEngine.startRecording(contextualTerms: terms, preferredDeviceUID: settings.preferredInputDeviceUID)
             bindLevel()
             #if os(macOS)
             HUDWindowController.shared.show(controller: self, settings: settings, atBottom: true)

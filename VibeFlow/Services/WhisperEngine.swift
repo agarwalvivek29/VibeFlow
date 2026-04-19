@@ -33,10 +33,11 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
 
     // MARK: Audio
 
-    private let audioEngine = AVAudioEngine()
+    private var audioEngine = AVAudioEngine()
     private var audioBuffer: [Float] = []
     private var deviceSampleRate: Double = 16000
     private let maxBufferSize = 14_400_000 // 5 minutes at 48 kHz
+    private var engineConfiguredForDevice: AudioDeviceID = 0
 
     // MARK: Whisper
 
@@ -87,85 +88,89 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
 
     // MARK: - SpeechRecognitionService
 
-    func startRecording(contextualTerms: [String]) throws {
+    func startRecording(contextualTerms: [String], preferredDeviceUID: String? = nil) throws {
         self.contextualTerms = contextualTerms
 
-        if audioEngine.isRunning {
-            audioEngine.stop()
-        }
+        // Remove old tap — but do NOT stop the engine if it's already configured for the right device
         audioEngine.inputNode.removeTap(onBus: 0)
-        audioEngine.reset()
         stopLevelTimer()
 
         audioBuffer = []
         transcript = ""
 
         #if os(macOS)
-        var defaultDeviceID: AudioDeviceID = 0
-        var propertyAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultInputDevice,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var propertySize = UInt32(MemoryLayout<AudioDeviceID>.size)
+        // Log available input devices
+        let allDevices = AudioDeviceManager.listInputDevices()
+        let deviceList = allDevices.map { "\($0.name) (uid=\($0.uid), rate=\(Int($0.sampleRate)))" }.joined(separator: ", ")
+        AppLogger.audio.info("audio_devices engine=whisper count=\(allDevices.count) devices=[\(deviceList)]")
 
-        let status = AudioObjectGetPropertyData(
-            AudioObjectID(kAudioObjectSystemObject),
-            &propertyAddress, 0, nil, &propertySize, &defaultDeviceID
-        )
+        // Resolve the target device
+        let targetDevice: AudioInputDevice?
+        if let uid = preferredDeviceUID, let device = allDevices.first(where: { $0.uid == uid }) {
+            targetDevice = device
+        } else {
+            targetDevice = AudioDeviceManager.getDefaultInputDevice()
+        }
 
-        guard status == noErr, defaultDeviceID != 0 else {
+        guard let device = targetDevice else {
             AppLogger.audio.error("recording outcome=error engine=whisper reason=no_input_device")
             throw NSError(domain: "WhisperEngine", code: 2,
                           userInfo: [NSLocalizedDescriptionKey: "No input device available"])
         }
 
-        var sampleRate: Float64 = 0
-        var sampleRateSize = UInt32(MemoryLayout<Float64>.size)
-        var sampleRateAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyNominalSampleRate,
-            mScope: kAudioObjectPropertyScopeInput,
-            mElement: kAudioObjectPropertyElementMain
-        )
+        deviceSampleRate = device.sampleRate
+        AppLogger.audio.info("audio_device_resolution engine=whisper device=\(device.name) device_id=\(device.id) rate=\(Int(device.sampleRate))")
 
-        let sampleRateStatus = AudioObjectGetPropertyData(
-            defaultDeviceID, &sampleRateAddress, 0, nil, &sampleRateSize, &sampleRate
-        )
-
-        if sampleRateStatus == noErr, sampleRate > 0 {
-            deviceSampleRate = sampleRate
+        // Keep engine alive between recordings for the same device.
+        // On device switch, create a NEW engine — the old engine's I/O thread
+        // terminates asynchronously on deallocation, avoiding the thread conflict.
+        let needsNewEngine: Bool
+        if !audioEngine.isRunning {
+            needsNewEngine = true
+        } else if device.id != engineConfiguredForDevice {
+            // Device changed — drop the old engine entirely, create fresh
+            audioEngine.inputNode.removeTap(onBus: 0)
+            audioEngine.stop()
+            audioEngine = AVAudioEngine()
+            needsNewEngine = true
+            AppLogger.audio.info("audio_engine engine=whisper new_engine_for_device_switch old=\(self.engineConfiguredForDevice) new=\(device.id)")
         } else {
-            deviceSampleRate = 48000
+            needsNewEngine = false
+            AppLogger.audio.info("audio_engine engine=whisper reusing_running device=\(device.name)")
         }
 
-        if audioEngine.isRunning { audioEngine.stop() }
-        audioEngine.reset()
+        if needsNewEngine {
+            // Point the engine at the REAL device, bypassing the CADefaultDeviceAggregate
+            let inputNode = audioEngine.inputNode
+            if let audioUnit = inputNode.audioUnit {
+                var deviceIDToSet = device.id
+                let setStatus = AudioUnitSetProperty(
+                    audioUnit, kAudioOutputUnitProperty_CurrentDevice,
+                    kAudioUnitScope_Global, 0,
+                    &deviceIDToSet, UInt32(MemoryLayout<AudioDeviceID>.size)
+                )
+                AppLogger.audio.info("audio_unit_set_device engine=whisper status=\(setStatus) device_id=\(device.id) device=\(device.name)")
+            }
+            engineConfiguredForDevice = device.id
+        }
+
+        #else
+        let needsNewEngine = !audioEngine.isRunning
+        #endif
 
         let inputNode = audioEngine.inputNode
-        if let audioUnit = inputNode.audioUnit {
-            var deviceIDToSet = defaultDeviceID
-            AudioUnitSetProperty(
-                audioUnit, kAudioOutputUnitProperty_CurrentDevice,
-                kAudioUnitScope_Global, 0,
-                &deviceIDToSet, UInt32(MemoryLayout<AudioDeviceID>.size)
-            )
-        }
 
-        let hardwareFormat = inputNode.inputFormat(forBus: 0)
+        // Query the engine's ACTUAL hardware format — don't trust our device query.
+        // When BT is connected, the aggregate device may override the device we set.
+        let hwFormat = inputNode.inputFormat(forBus: 0)
         let tapFormat: AVAudioFormat?
-        if hardwareFormat.sampleRate > 0, hardwareFormat.channelCount > 0 {
-            tapFormat = hardwareFormat
-            deviceSampleRate = hardwareFormat.sampleRate
+        if hwFormat.sampleRate > 0 && hwFormat.channelCount > 0 {
+            tapFormat = hwFormat
+            deviceSampleRate = hwFormat.sampleRate
         } else {
             tapFormat = nil
         }
-        #else
-        let inputNode = audioEngine.inputNode
-        let tapFormat = inputNode.outputFormat(forBus: 0)
-        deviceSampleRate = tapFormat.sampleRate
-        #endif
-
-        inputNode.removeTap(onBus: 0)
+        AppLogger.audio.info("audio_tap engine=whisper hw_rate=\(Int(hwFormat.sampleRate)) hw_channels=\(hwFormat.channelCount)")
 
         inputNode.installTap(onBus: 0, bufferSize: 4096, format: tapFormat) { [weak self] buffer, _ in
             guard let self, let channelData = buffer.floatChannelData else { return }
@@ -178,15 +183,17 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
             self.updateLevel(from: buffer)
         }
 
-        audioEngine.prepare()
-        try audioEngine.start()
-        AppLogger.audio.info("recording phase=active engine=whisper sample_rate=\(Int(self.deviceSampleRate))")
+        if needsNewEngine {
+            audioEngine.prepare()
+            try audioEngine.start()
+        }
+        AppLogger.audio.info("recording phase=active engine=whisper sample_rate=\(Int(self.deviceSampleRate)) engine_restarted=\(needsNewEngine)")
         startLevelTimer()
     }
 
     func stopAndWaitForFinal() async -> String {
+        // Remove tap but keep engine running — avoids I/O thread restart on next recording
         audioEngine.inputNode.removeTap(onBus: 0)
-        audioEngine.stop()
         stopLevelTimer()
 
         let samples = resampleTo16kHz(audioBuffer, from: deviceSampleRate)
@@ -232,6 +239,7 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
         audioEngine.inputNode.removeTap(onBus: 0)
         audioEngine.stop()
         audioEngine.reset()
+        engineConfiguredForDevice = 0
         stopLevelTimer()
         audioBuffer = []
     }
