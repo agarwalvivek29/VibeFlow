@@ -33,7 +33,7 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
 
     // MARK: Audio
 
-    private let audioEngine = AVAudioEngine()
+    private var audioEngine = AVAudioEngine()
     private var audioBuffer: [Float] = []
     private var deviceSampleRate: Double = 16000
     private let maxBufferSize = 14_400_000 // 5 minutes at 48 kHz
@@ -121,17 +121,26 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
         deviceSampleRate = device.sampleRate
         AppLogger.audio.info("audio_device_resolution engine=whisper device=\(device.name) device_id=\(device.id) rate=\(Int(device.sampleRate))")
 
-        // Only reconfigure the engine if the device changed or engine isn't running.
-        // Keeping the engine alive between recordings avoids the CoreAudio I/O thread
-        // restart issue (HALB_IOThread: there already is a thread).
-        let needsEngineRestart = !audioEngine.isRunning || device.id != engineConfiguredForDevice
-        if needsEngineRestart {
-            if audioEngine.isRunning { audioEngine.stop() }
-            audioEngine.reset()
+        // Keep engine alive between recordings for the same device.
+        // On device switch, create a NEW engine — the old engine's I/O thread
+        // terminates asynchronously on deallocation, avoiding the thread conflict.
+        let needsNewEngine: Bool
+        if !audioEngine.isRunning {
+            needsNewEngine = true
+        } else if device.id != engineConfiguredForDevice {
+            // Device changed — drop the old engine entirely, create fresh
+            audioEngine.inputNode.removeTap(onBus: 0)
+            audioEngine.stop()
+            audioEngine = AVAudioEngine()
+            needsNewEngine = true
+            AppLogger.audio.info("audio_engine engine=whisper new_engine_for_device_switch old=\(self.engineConfiguredForDevice) new=\(device.id)")
+        } else {
+            needsNewEngine = false
+            AppLogger.audio.info("audio_engine engine=whisper reusing_running device=\(device.name)")
+        }
 
-            // Point the engine at the REAL device, bypassing the CADefaultDeviceAggregate.
-            // Without this, AVAudioEngine connects to the aggregate device which reports
-            // a wrong sample rate (e.g. 44100) while the actual BT hardware is 16000.
+        if needsNewEngine {
+            // Point the engine at the REAL device, bypassing the CADefaultDeviceAggregate
             let inputNode = audioEngine.inputNode
             if let audioUnit = inputNode.audioUnit {
                 var deviceIDToSet = device.id
@@ -143,15 +152,13 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
                 AppLogger.audio.info("audio_unit_set_device engine=whisper status=\(setStatus) device_id=\(device.id) device=\(device.name)")
             }
             engineConfiguredForDevice = device.id
-        } else {
-            AppLogger.audio.info("audio_engine engine=whisper reusing_running device=\(device.name)")
         }
 
         // Use the real device's format for the tap
         let tapFormat = AVAudioFormat(standardFormatWithSampleRate: device.sampleRate, channels: 1)
         #else
         let tapFormat: AVAudioFormat? = nil
-        let needsEngineRestart = !audioEngine.isRunning
+        let needsNewEngine = !audioEngine.isRunning
         #endif
 
         let inputNode = audioEngine.inputNode
@@ -167,11 +174,11 @@ final class WhisperEngine: NSObject, ObservableObject, SpeechRecognitionService 
             self.updateLevel(from: buffer)
         }
 
-        if needsEngineRestart {
+        if needsNewEngine {
             audioEngine.prepare()
             try audioEngine.start()
         }
-        AppLogger.audio.info("recording phase=active engine=whisper sample_rate=\(Int(self.deviceSampleRate)) engine_restarted=\(needsEngineRestart)")
+        AppLogger.audio.info("recording phase=active engine=whisper sample_rate=\(Int(self.deviceSampleRate)) engine_restarted=\(needsNewEngine)")
         startLevelTimer()
     }
 

@@ -12,7 +12,7 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
     @Published var transcript: String = ""
     @Published var level: Float = 0.0 // 0...1 for waveform UI
 
-    private let audioEngine = AVAudioEngine()
+    private var audioEngine = AVAudioEngine()
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
     private let speechRecognizer = SFSpeechRecognizer()
@@ -74,12 +74,23 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
 
         AppLogger.audio.info("audio_device_resolution engine=apple device=\(device.name) device_id=\(device.id) rate=\(Int(device.sampleRate))")
 
-        // Only reconfigure if device changed or engine isn't running
-        let needsEngineRestart = !audioEngine.isRunning || device.id != engineConfiguredForDevice
-        if needsEngineRestart {
-            if audioEngine.isRunning { audioEngine.stop() }
-            audioEngine.reset()
+        // Keep engine alive between recordings for the same device.
+        // On device switch, create a NEW engine to avoid I/O thread conflict.
+        let needsNewEngine: Bool
+        if !audioEngine.isRunning {
+            needsNewEngine = true
+        } else if device.id != engineConfiguredForDevice {
+            audioEngine.inputNode.removeTap(onBus: 0)
+            audioEngine.stop()
+            audioEngine = AVAudioEngine()
+            needsNewEngine = true
+            AppLogger.audio.info("audio_engine engine=apple new_engine_for_device_switch old=\(self.engineConfiguredForDevice) new=\(device.id)")
+        } else {
+            needsNewEngine = false
+            AppLogger.audio.info("audio_engine engine=apple reusing_running device=\(device.name)")
+        }
 
+        if needsNewEngine {
             let inputNode = audioEngine.inputNode
             if let audioUnit = inputNode.audioUnit {
                 var deviceIDToSet = device.id
@@ -91,14 +102,12 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
                 AppLogger.audio.info("audio_unit_set_device engine=apple status=\(setStatus) device_id=\(device.id) device=\(device.name)")
             }
             engineConfiguredForDevice = device.id
-        } else {
-            AppLogger.audio.info("audio_engine engine=apple reusing_running device=\(device.name)")
         }
 
         let tapFormat = AVAudioFormat(standardFormatWithSampleRate: device.sampleRate, channels: 1)
         #else
         let tapFormat: AVAudioFormat? = nil
-        let needsEngineRestart = !audioEngine.isRunning
+        let needsNewEngine = !audioEngine.isRunning
         #endif
 
         let inputNode = audioEngine.inputNode
@@ -113,11 +122,11 @@ final class AppleSpeechEngine: NSObject, ObservableObject, SpeechRecognitionServ
             self?.updateLevel(from: buffer)
         }
 
-        if needsEngineRestart {
+        if needsNewEngine {
             audioEngine.prepare()
             try audioEngine.start()
         }
-        AppLogger.audio.info("recording phase=active engine=apple running=\(self.audioEngine.isRunning) engine_restarted=\(needsEngineRestart)")
+        AppLogger.audio.info("recording phase=active engine=apple running=\(self.audioEngine.isRunning) engine_restarted=\(needsNewEngine)")
 
         recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
             guard let self = self else { return }
