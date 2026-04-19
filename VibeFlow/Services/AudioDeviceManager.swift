@@ -101,8 +101,10 @@ enum AudioDeviceManager {
         let status = AudioObjectGetPropertyDataSize(deviceID, &address, 0, nil, &size)
         guard status == noErr, size > 0 else { return false }
 
-        let bufferListPointer = UnsafeMutablePointer<AudioBufferList>.allocate(capacity: 1)
-        defer { bufferListPointer.deallocate() }
+        // Allocate the exact size CoreAudio needs (AudioBufferList is variable-length)
+        let rawPointer = UnsafeMutableRawPointer.allocate(byteCount: Int(size), alignment: MemoryLayout<AudioBufferList>.alignment)
+        defer { rawPointer.deallocate() }
+        let bufferListPointer = rawPointer.bindMemory(to: AudioBufferList.self, capacity: 1)
         let getStatus = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, bufferListPointer)
         guard getStatus == noErr else { return false }
 

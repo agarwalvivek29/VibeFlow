@@ -170,6 +170,7 @@ struct SettingsView: View {
     // MARK: - Input Device
 
     @State private var availableInputDevices: [AudioInputDevice] = []
+    @State private var defaultDeviceName: String = "Built-in Microphone"
 
     private var inputDeviceSection: some View {
         SettingsSection(title: "Input Device") {
@@ -184,9 +185,7 @@ struct SettingsView: View {
                         }
                     }
                 )) {
-                    let defaultDevice = AudioDeviceManager.getDefaultInputDevice()
-                    let defaultName = defaultDevice?.name ?? "Built-in Microphone"
-                    Text("System Default (\(defaultName))")
+                    Text("System Default (\(defaultDeviceName))")
                         .tag("")
 
                     ForEach(availableInputDevices) { device in
@@ -220,6 +219,7 @@ struct SettingsView: View {
     private func refreshInputDevices() {
         #if os(macOS)
         availableInputDevices = AudioDeviceManager.listInputDevices()
+        defaultDeviceName = AudioDeviceManager.getDefaultInputDevice()?.name ?? "Built-in Microphone"
         #endif
     }
 
